@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [production]  # Disabled - only runs on production branch
   pull_request:
-    branches: [main, develop]
+    branches: [production]
 
 jobs:
   # Backend Tests
