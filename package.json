@@ -1,0 +1,70 @@
+{
+  "name": "chainmind",
+  "version": "1.0.0",
+  "description": "ChainMind - AI-Powered DeFi Chatbot for ETHOnline 2025",
+  "main": "index.js",
+  "scripts": {
+    "install:all": "npm run install:backend && npm run install:frontend && npm run install:contracts",
+    "install:backend": "cd backend && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "install:contracts": "cd contracts && npm install",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm start",
+    "build": "npm run build:backend && npm run build:frontend && npm run build:contracts",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "build:contracts": "cd contracts && npm run compile",
+    "test": "npm run test:backend && npm run test:frontend && npm run test:contracts",
+    "test:backend": "cd backend && npm test",
+    "test:frontend": "cd frontend && npm test",
+    "test:contracts": "cd contracts && npm test",
+    "deploy:local": "cd contracts && npm run deploy:local",
+    "deploy:sepolia": "cd contracts && npm run deploy:sepolia",
+    "deploy:polygon": "cd contracts && npm run deploy:polygon",
+    "deploy:arbitrum": "cd contracts && npm run deploy:arbitrum",
+    "prisma:migrate": "cd backend && npm run prisma:migrate",
+    "prisma:generate": "cd backend && npm run prisma:generate",
+    "prisma:studio": "cd backend && npm run prisma:studio",
+    "clean": "rimraf backend/dist backend/node_modules frontend/build frontend/node_modules contracts/artifacts contracts/cache contracts/node_modules",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "lint:backend": "cd backend && npm run lint",
+    "lint:frontend": "cd frontend && npm run lint",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "setup": "npm run install:all && npm run prisma:generate && npm run build:contracts"
+  },
+  "keywords": [
+    "ethereum",
+    "defi",
+    "ai",
+    "chatbot",
+    "blockchain",
+    "web3",
+    "hackathon",
+    "ethonline2025"
+  ],
+  "author": "ChainMind Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "prettier": "^3.0.3",
+    "rimraf": "^5.0.5"
+  },
+  "workspaces": [
+    "backend",
+    "frontend",
+    "contracts"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chainmind/chainmind.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chainmind/chainmind/issues"
+  },
+  "homepage": "https://chainmind.ai"
+}

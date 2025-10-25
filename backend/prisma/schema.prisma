@@ -1,0 +1,213 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  address   String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // User preferences
+  preferences Json?
+  
+  // Relationships
+  conversations Conversation[]
+  portfolios    Portfolio[]
+  alerts        Alert[]
+
+  @@map("users")
+}
+
+model Conversation {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String   @db.ObjectId
+  title        String?
+  isActive     Boolean? @default(true)
+  messageCount Int?     @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relationships
+  user     User      @relation(fields: [userId], references: [id])
+  messages Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String   @db.ObjectId
+  content        String
+  sender         String   // 'user' or 'ai'
+  role           String?  // 'user' or 'assistant'
+  type           String?  // 'text', 'analysis', 'warning', 'education'
+  messageType    String?  // 'text', 'analysis', 'warning', 'education'
+  metadata       Json?    // Additional data like analysis results
+  createdAt      DateTime @default(now())
+
+  // Relationships
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@map("messages")
+}
+
+model Portfolio {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @db.ObjectId
+  address    String
+  chain      String   // 'ethereum', 'polygon', 'arbitrum'
+  balance    String   // Store as string to avoid Decimal issues in MongoDB
+  totalValue String?  // Total portfolio value in USD
+  tokens     Json     // Array of token holdings
+  protocols  Json     // DeFi protocol positions
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, address, chain])
+  @@map("portfolios")
+}
+
+model Token {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  address     String
+  symbol      String
+  name        String
+  decimals    Int
+  chain       String
+  logoUrl     String?
+  coingeckoId String?
+  portfolioId String?  @db.ObjectId
+  balance     String?  // Token balance for portfolio
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Price data
+  prices PriceData[]
+
+  @@unique([address, chain])
+  @@map("tokens")
+}
+
+model PriceData {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  tokenId   String   @db.ObjectId
+  price     String   // Store as string to avoid Decimal issues in MongoDB
+  source    String   // 'pyth', 'coingecko', etc.
+  timestamp DateTime @default(now())
+
+  // Relationships
+  token Token @relation(fields: [tokenId], references: [id])
+
+  @@map("price_data")
+}
+
+model Protocol {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  website     String?
+  logoUrl     String?
+  chain       String
+  category    String   // 'dex', 'lending', 'yield', etc.
+  tvl         String?  // Store as string to avoid Decimal issues in MongoDB
+  
+  // Security data
+  auditStatus String?  // 'audited', 'unaudited', 'partially_audited'
+  auditFirms  Json?    // Array of audit firms
+  riskScore   Int?     // 1-100 risk score
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  securityAnalyses SecurityAnalysis[]
+
+  @@map("protocols")
+}
+
+model SecurityAnalysis {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  protocolId String   @db.ObjectId
+  
+  // Analysis results
+  contractAddress String
+  riskLevel      String   // 'low', 'medium', 'high', 'critical'
+  issues         Json     // Array of security issues found
+  score          Int      // 1-100 security score
+  
+  // Analysis metadata
+  analyzedAt DateTime @default(now())
+  analyzer   String   // 'chainmind', 'external_api'
+  version    String?  // Analysis version
+
+  // Relationships
+  protocol Protocol @relation(fields: [protocolId], references: [id])
+
+  @@map("security_analyses")
+}
+
+model Alert {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  type      String   // 'price', 'security', 'portfolio'
+  title     String
+  message   String
+  severity  String   // 'info', 'warning', 'critical'
+  isRead    Boolean  @default(false)
+  metadata  Json?    // Additional alert data
+  createdAt DateTime @default(now())
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("alerts")
+}
+
+model MarketData {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  symbol    String
+  price     String   // Store as string to avoid Decimal issues in MongoDB
+  change24h String?  // Store as string to avoid Decimal issues in MongoDB
+  volume24h String?  // Store as string to avoid Decimal issues in MongoDB
+  marketCap String?  // Store as string to avoid Decimal issues in MongoDB
+  source    String   // Data source
+  timestamp DateTime @default(now())
+
+  @@unique([symbol, source, timestamp])
+  @@map("market_data")
+}
+
+model ApiKey {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  service   String   // 'openai', 'pyth', 'blockscout', etc.
+  keyHash   String   // Hashed API key for security
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([service])
+  @@map("api_keys")
+}
+
+model SystemConfig {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_config")
+}
