@@ -93,7 +93,7 @@ contracts/
 
 ### Prerequisites
 - Node.js 18+ and npm 9+
-- PostgreSQL database
+- MongoDB database (MongoDB Atlas for cloud or local MongoDB)
 - Redis server
 - Git
 
@@ -130,6 +130,126 @@ npm run compile
 npm run deploy:local
 ```
 
+## 🐳 Docker Setup (Recommended)
+
+### Quick Start with Docker Compose
+
+**Development Environment:**
+```bash
+# Clone the repository
+git clone https://github.com/your-username/chainmind.git
+cd chainmind
+
+# Copy environment files
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+cp contracts/.env.example contracts/.env
+
+# Edit .env files with your API keys
+# Important: Add your MongoDB URI, API keys, etc.
+
+# Start only MongoDB and Redis for development
+docker-compose -f docker-compose.dev.yml up -d
+
+# Then run frontend and backend locally for hot-reload
+cd backend && npm install && npm run dev
+cd frontend && npm install && npm run dev
+```
+
+**Full Stack with Docker:**
+```bash
+# Build and start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop all services
+docker-compose down
+
+# Stop and remove volumes (clean slate)
+docker-compose down -v
+```
+
+### Individual Service Commands
+```bash
+# Start only database services
+docker-compose up -d mongodb redis
+
+# Restart a specific service
+docker-compose restart backend
+
+# View service logs
+docker-compose logs -f backend
+
+# Execute commands in a container
+docker-compose exec backend npm run prisma:migrate
+docker-compose exec backend npm test
+```
+
+### Docker Environment Variables
+Create a `.env` file in the root directory:
+```env
+# MongoDB
+MONGO_USERNAME=admin
+MONGO_PASSWORD=your_secure_password
+MONGO_DATABASE=chainmind
+
+# Redis
+REDIS_PASSWORD=your_redis_password
+
+# Backend
+BACKEND_PORT=3001
+NODE_ENV=development
+
+# API Keys (add your own)
+OPENAI_API_KEY=your_openai_key
+GEMINI_API_KEY=your_gemini_key
+
+# Frontend
+VITE_API_URL=http://localhost:3001
+VITE_WALLETCONNECT_PROJECT_ID=your_project_id
+```
+
+### Production Deployment
+```bash
+# Build production images
+docker-compose -f docker-compose.yml --profile production build
+
+# Start with nginx reverse proxy
+docker-compose --profile production up -d
+```
+
+### Troubleshooting Docker
+
+**Port conflicts:**
+```bash
+# Check if ports are in use
+lsof -i :3001  # Backend
+lsof -i :5173  # Frontend
+lsof -i :27017 # MongoDB
+
+# Stop conflicting services
+docker-compose down
+```
+
+**Reset everything:**
+```bash
+# Remove all containers, networks, and volumes
+docker-compose down -v
+docker system prune -a
+
+# Rebuild from scratch
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+**View container status:**
+```bash
+docker-compose ps
+docker stats
+```
+
 ## 🔧 Configuration
 
 ### Environment Variables
@@ -137,7 +257,7 @@ npm run deploy:local
 #### Backend (.env)
 ```env
 # Database
-DATABASE_URL="postgresql://username:password@localhost:5432/chainmind"
+DATABASE_URL="mongodb+srv://username:password@your-cluster.mongodb.net/?retryWrites=true&w=majority&appName=ChainMind"
 
 # APIs
 OPENAI_API_KEY="your_openai_api_key"
@@ -221,7 +341,7 @@ npm run deploy:arbitrum
 ### Core Technologies
 - **Backend**: Node.js, Express, TypeScript, Prisma ORM
 - **Frontend**: React, TypeScript, Tailwind CSS, Framer Motion
-- **Database**: PostgreSQL with Redis caching
+- **Database**: MongoDB with Redis caching
 - **Blockchain**: ethers.js, Hardhat, OpenZeppelin
 
 ### Sponsor Integrations

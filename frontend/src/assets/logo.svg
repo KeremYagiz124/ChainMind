@@ -1,0 +1,55 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="100" cy="100" r="95" fill="url(#gradient1)"/>
+  
+  <!-- Gradient Definition -->
+  <defs>
+    <linearGradient id="gradient1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#9333ea;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Brain Circuit -->
+  <g transform="translate(50, 50)">
+    <!-- Brain Outline -->
+    <path d="M 30 10 Q 50 5 70 10 Q 85 15 85 30 Q 85 45 75 55 Q 85 65 85 80 Q 85 95 70 100 Q 50 105 30 100 Q 15 95 15 80 Q 15 65 25 55 Q 15 45 15 30 Q 15 15 30 10 Z" 
+          fill="none" 
+          stroke="white" 
+          stroke-width="3" 
+          stroke-linecap="round"/>
+    
+    <!-- Circuit Nodes -->
+    <circle cx="35" cy="30" r="4" fill="white"/>
+    <circle cx="50" cy="25" r="4" fill="white"/>
+    <circle cx="65" cy="30" r="4" fill="white"/>
+    <circle cx="35" cy="50" r="4" fill="white"/>
+    <circle cx="50" cy="55" r="4" fill="white"/>
+    <circle cx="65" cy="50" r="4" fill="white"/>
+    <circle cx="35" cy="75" r="4" fill="white"/>
+    <circle cx="50" cy="80" r="4" fill="white"/>
+    <circle cx="65" cy="75" r="4" fill="white"/>
+    
+    <!-- Circuit Lines -->
+    <line x1="35" y1="30" x2="50" y2="25" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="50" y1="25" x2="65" y2="30" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="35" y1="30" x2="35" y2="50" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="50" y1="25" x2="50" y2="55" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="65" y1="30" x2="65" y2="50" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="35" y1="50" x2="50" y2="55" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="50" y1="55" x2="65" y2="50" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="35" y1="50" x2="35" y2="75" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="50" y1="55" x2="50" y2="80" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="65" y1="50" x2="65" y2="75" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="35" y1="75" x2="50" y2="80" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="50" y1="80" x2="65" y2="75" stroke="white" stroke-width="2" opacity="0.7"/>
+  </g>
+  
+  <!-- Chain Link -->
+  <g transform="translate(120, 140)">
+    <circle cx="0" cy="0" r="12" fill="none" stroke="white" stroke-width="3"/>
+    <circle cx="20" cy="0" r="12" fill="none" stroke="white" stroke-width="3"/>
+    <line x1="0" y1="-8" x2="20" y2="-8" stroke="white" stroke-width="3"/>
+    <line x1="0" y1="8" x2="20" y2="8" stroke="white" stroke-width="3"/>
+  </g>
+</svg>

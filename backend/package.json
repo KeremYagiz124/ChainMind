@@ -4,7 +4,7 @@
   "description": "Backend API for ChainMind AI-powered DeFi chatbot",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "nodemon --exec ts-node src/index-working.ts",
+    "dev": "node src/simple-start.js",
     "dev:simple": "node src/simple-start.js",
     "build": "tsc",
     "start": "node dist/index.js",

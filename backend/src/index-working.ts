@@ -1,9 +1,15 @@
+// Load environment variables FIRST
+import dotenv from 'dotenv';
+dotenv.config();
+
+// Then import everything else
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { logger } from './utils/logger';
+import { initializeDatabase } from './config/database';
 
 // Import routes
 import chatRoutes from './routes/chatRoutes';
@@ -95,10 +101,28 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 const PORT = process.env.PORT || 3001;
 
-server.listen(PORT, () => {
-  logger.info(`🚀 ChainMind Backend running on port ${PORT}`);
-  logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
-});
+// Initialize database and start server
+async function startServer() {
+  try {
+    // Initialize database (optional - will continue if fails)
+    try {
+      await initializeDatabase();
+    } catch (dbError) {
+      logger.warn('⚠️ Database initialization failed, continuing without DB:', dbError);
+    }
+
+    // Start server
+    server.listen(PORT, () => {
+      logger.info(`🚀 ChainMind Backend running on port ${PORT}`);
+      logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+      logger.info(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+    });
+  } catch (error) {
+    logger.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 export default app;

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 interface Message {
@@ -30,13 +31,55 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
   const [conversationId, setConversationId] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { address, isConnected } = useAccount();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Create new conversation ID when wallet connects
+  // Load conversation from URL parameter
   useEffect(() => {
-    if (isConnected && address && !conversationId) {
+    const convId = searchParams.get('conversation');
+    if (convId && isConnected && address) {
+      loadConversation(convId);
+      // Remove the parameter from URL after loading
+      setSearchParams({});
+    } else if (isConnected && address && !conversationId) {
+      // Create new conversation ID when wallet connects
       setConversationId(`conv_${address}_${Date.now()}`);
     }
-  }, [isConnected, address]);
+  }, [isConnected, address, searchParams]);
+
+  const loadConversation = async (convId: string) => {
+    try {
+      setIsLoading(true);
+      const response = await fetch(`http://localhost:3001/api/chat/conversation/${convId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to load conversation');
+      }
+
+      const data = await response.json();
+      
+      if (data.success && data.conversation) {
+        setConversationId(convId);
+        
+        // Convert backend messages to frontend format
+        const loadedMessages: Message[] = data.conversation.messages.map((msg: any) => ({
+          id: msg.id?.toString() || Date.now().toString(),
+          content: msg.content,
+          sender: msg.sender === 'assistant' ? 'ai' : msg.sender,
+          timestamp: new Date(msg.timestamp || msg.createdAt)
+        }));
+        
+        setMessages(loadedMessages);
+        toast.success('Conversation loaded successfully');
+      }
+    } catch (error) {
+      console.error('Error loading conversation:', error);
+      toast.error('Failed to load conversation');
+      // Create a new conversation if loading fails
+      setConversationId(`conv_${address}_${Date.now()}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -122,7 +165,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
   };
 
   return (
-    <div className={`flex flex-col h-full bg-white dark:bg-gray-900 ${className}`}>
+    <div className={`flex flex-col h-[calc(100vh-8rem)] bg-white dark:bg-gray-900 rounded-lg shadow-lg ${className}`}>
       {/* Chat Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center space-x-3">
@@ -130,20 +173,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
             <Bot className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">ChainMind AI</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              {isConnected ? 'Connected' : 'Not connected'} • AI-Powered DeFi Assistant
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">ChainMind AI</h2>
+            <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+              {isConnected ? 'Connected' : 'Not connected'} • <span className="hidden sm:inline">AI-Powered DeFi Assistant</span><span className="sm:hidden">AI Assistant</span>
             </p>
           </div>
         </div>
         <div className="flex items-center space-x-2">
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span className="text-sm text-gray-500 dark:text-gray-400">Online</span>
+          <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 hidden sm:inline">Online</span>
         </div>
       </div>
 
       {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         <AnimatePresence>
           {messages.map((message) => (
             <motion.div
@@ -154,7 +197,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
               transition={{ duration: 0.3 }}
               className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div className={`flex max-w-xs lg:max-w-md xl:max-w-lg ${
+              <div className={`flex max-w-[85%] sm:max-w-xs lg:max-w-md xl:max-w-lg ${
                 message.sender === 'user' ? 'flex-row-reverse' : 'flex-row'
               } items-start space-x-2`}>
                 {/* Avatar */}

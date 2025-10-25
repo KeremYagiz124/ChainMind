@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import fetch from 'node-fetch';
 import { logger } from '../utils/logger';
@@ -26,7 +25,7 @@ export interface ChatContext {
 }
 
 export class AIService {
-  private openai?: OpenAI;
+  private openai?: any;
   private gemini?: GoogleGenerativeAI;
   private aiProvider: string;
   private marketService: MarketService;
@@ -34,7 +33,7 @@ export class AIService {
   private portfolioService: PortfolioService;
 
   constructor() {
-    this.aiProvider = process.env.AI_PROVIDER || 'openai';
+    this.aiProvider = process.env.AI_PROVIDER || 'gemini';
     
     // Initialize based on provider
     switch (this.aiProvider) {
@@ -44,8 +43,9 @@ export class AIService {
         }
         break;
       case 'openai':
-      default:
         if (process.env.OPENAI_API_KEY) {
+          // Lazy load OpenAI only if needed
+          const OpenAI = require('openai').default;
           this.openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
           });

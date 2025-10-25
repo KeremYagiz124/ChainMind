@@ -1,61 +1,70 @@
-# Use Node.js 18 LTS Alpine image
-FROM node:18-alpine AS builder
+# Base image
+FROM node:18-alpine AS base
 
-# Set working directory
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
-COPY tsconfig.json ./
+COPY prisma ./prisma/
 
 # Install dependencies
 RUN npm ci --only=production && npm cache clean --force
 
-# Copy source code
-COPY src ./src
-COPY prisma ./prisma
+# Development image
+FROM base AS dev
+WORKDIR /app
 
-# Generate Prisma client
+# Copy package files
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# Install all dependencies including dev
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Generate Prisma Client
+RUN npx prisma generate
+
+EXPOSE 3001
+
+CMD ["npm", "run", "dev"]
+
+# Production build
+FROM base AS builder
+WORKDIR /app
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Generate Prisma Client
 RUN npx prisma generate
 
 # Build the application
 RUN npm run build
 
-# Production stage
-FROM node:18-alpine AS production
-
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
-
-# Create app user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S chainmind -u 1001
-
-# Set working directory
+# Production image
+FROM base AS runner
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+ENV NODE_ENV=production
 
-# Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 backend
 
-# Copy built application from builder stage
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/prisma ./prisma
+# Copy built application
+COPY --from=builder --chown=backend:nodejs /app/dist ./dist
+COPY --from=builder --chown=backend:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=backend:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=backend:nodejs /app/package*.json ./
 
-# Change ownership to app user
-RUN chown -R chainmind:nodejs /app
-USER chainmind
+USER backend
 
-# Expose port
 EXPOSE 3001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node dist/healthcheck.js
-
-# Start the application
-ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/index.js"]

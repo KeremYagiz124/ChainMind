@@ -8,6 +8,7 @@ import { wagmiConfig, chains } from './config/wagmi';
 import ChatInterface from './components/ChatInterface';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
+import ErrorBoundary from './components/ErrorBoundary';
 import Portfolio from './pages/Portfolio';
 import Analytics from './pages/Analytics';
 import Security from './pages/Security';
@@ -28,19 +29,20 @@ function App() {
   };
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <WagmiConfig config={wagmiConfig}>
-        <RainbowKitProvider chains={chains}>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <WagmiConfig config={wagmiConfig}>
+          <RainbowKitProvider chains={chains} locale="en">
           <Router>
-            <div className="min-h-screen bg-gray-50 flex">
+            <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
               <Sidebar isOpen={isSidebarOpen} onClose={closeSidebar} />
               
               <div className="flex-1 flex flex-col">
                 <Header onMenuToggle={toggleSidebar} isSidebarOpen={isSidebarOpen} />
                 
                 {/* Disclaimer Banner */}
-                <div className="bg-amber-50 border-b border-amber-200 px-6 py-2">
-                  <p className="text-xs text-amber-800 text-center">
+                <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-6 py-2">
+                  <p className="text-xs text-amber-800 dark:text-amber-200 text-center">
                     ⚠️ <strong>Disclaimer:</strong> ChainMind provides educational information only. This is not financial, investment, or legal advice. Always do your own research (DYOR) and consult with qualified professionals before making any investment decisions.
                   </p>
                 </div>
@@ -60,9 +62,10 @@ function App() {
               <Toaster position="top-right" />
             </div>
           </Router>
-        </RainbowKitProvider>
-      </WagmiConfig>
-    </QueryClientProvider>
+          </RainbowKitProvider>
+        </WagmiConfig>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

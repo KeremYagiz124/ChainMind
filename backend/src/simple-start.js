@@ -84,7 +84,7 @@ async function generateAIResponse(prompt) {
   if (geminiClient && (provider === 'gemini')) {
     try {
       const model = geminiClient.getGenerativeModel({ 
-        model: process.env.GEMINI_MODEL || 'gemini-1.5-pro-latest'
+        model: process.env.GEMINI_MODEL || 'gemini-1.5-flash-latest'
       });
       const result = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: `You are ChainMind, an expert AI for DeFi, crypto markets, portfolio analysis, and protocol security. Provide concise, helpful, and actionable responses.\n\nUser question: ${prompt}` }] }],
@@ -1123,6 +1123,26 @@ app.get('/api/chat/conversations/:userAddress', (req, res) => {
       messageCount: conv.messages.length,
       lastMessage: conv.messages[conv.messages.length - 1]?.content || ''
     }))
+  });
+});
+
+app.get('/api/chat/conversation/:id', (req, res) => {
+  const { id } = req.params;
+  const conversation = conversations.find(c => c.id === id);
+  
+  if (!conversation) {
+    return res.status(404).json({
+      success: false,
+      error: 'Conversation not found'
+    });
+  }
+  
+  res.json({
+    success: true,
+    conversation: {
+      ...conversation,
+      messageCount: conversation.messages.length
+    }
   });
 });
 

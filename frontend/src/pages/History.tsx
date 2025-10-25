@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
+import { useNavigate } from 'react-router-dom';
 import { Clock, MessageSquare, Trash2, Search } from 'lucide-react';
 
 interface ChatHistory {
@@ -12,6 +13,7 @@ interface ChatHistory {
 
 const History: React.FC = () => {
   const { address, isConnected } = useAccount();
+  const navigate = useNavigate();
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
@@ -89,6 +91,10 @@ const History: React.FC = () => {
     }
   };
 
+  const handleLoadConversation = (chatId: string) => {
+    navigate(`/?conversation=${chatId}`);
+  };
+
   if (!isConnected) {
     return (
       <div className="max-w-4xl mx-auto">
@@ -162,6 +168,7 @@ const History: React.FC = () => {
               {filteredHistory.map((chat) => (
                 <div
                   key={chat.id}
+                  onClick={() => handleLoadConversation(chat.id)}
                   className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer group"
                 >
                   <div className="flex items-start justify-between">

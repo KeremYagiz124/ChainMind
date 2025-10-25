@@ -1,56 +1,66 @@
-# Use Node.js 18 LTS Alpine image
-FROM node:18-alpine AS builder
+# Base image
+FROM node:18-alpine AS base
 
-# Set working directory
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci && npm cache clean --force
+RUN npm ci
+
+# Development image
+FROM base AS dev
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies
+RUN npm ci
 
 # Copy source code
-COPY public ./public
-COPY src ./src
-COPY tsconfig.json ./
-COPY tailwind.config.js ./
+COPY . .
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+# Production build
+FROM base AS builder
+WORKDIR /app
+
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Build arguments
+ARG VITE_API_URL
+ARG VITE_WALLETCONNECT_PROJECT_ID
+
+# Set environment variables for build
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_WALLETCONNECT_PROJECT_ID=$VITE_WALLETCONNECT_PROJECT_ID
 
 # Build the application
 RUN npm run build
 
-# Production stage with Nginx
-FROM nginx:alpine AS production
+# Production image with nginx
+FROM nginx:alpine AS runner
+WORKDIR /usr/share/nginx/html
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Remove default nginx static assets
+RUN rm -rf ./*
 
-# Copy built application from builder stage
-COPY --from=builder /app/build /usr/share/nginx/html
+# Copy built application from builder
+COPY --from=builder /app/dist .
 
-# Copy custom nginx configuration
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/nginx.conf
 
-# Create nginx user
-RUN addgroup -g 1001 -S nginx-group
-RUN adduser -S nginx-user -u 1001 -G nginx-group
+EXPOSE 80
 
-# Change ownership
-RUN chown -R nginx-user:nginx-group /usr/share/nginx/html
-RUN chown -R nginx-user:nginx-group /var/cache/nginx
-RUN chown -R nginx-user:nginx-group /var/log/nginx
-RUN chown -R nginx-user:nginx-group /etc/nginx/conf.d
-
-# Switch to non-root user
-USER nginx-user
-
-# Expose port
-EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
-
-# Start nginx
-ENTRYPOINT ["dumb-init", "--"]
 CMD ["nginx", "-g", "daemon off;"]

@@ -1,12 +1,19 @@
 import { Router, Request, Response } from 'express';
 import { AIService, ChatContext } from '../services/aiService';
-import { getDatabase } from '../config/database';
 import { logger } from '../utils/logger';
 import { asyncHandler } from '../middleware/errorMiddleware';
 
 const router = Router();
 const aiService = new AIService();
-const db = getDatabase();
+
+// Database is optional
+let db: any = null;
+try {
+  const { getDatabase } = require('../config/database');
+  db = getDatabase();
+} catch (err) {
+  logger.warn('Database not available for chat routes');
+}
 
 // POST /api/chat/message - Send a message to the AI
 router.post('/message', asyncHandler(async (req: Request, res: Response) => {

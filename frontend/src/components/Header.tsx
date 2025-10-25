@@ -14,14 +14,14 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen }) => {
   const navigate = useNavigate();
 
   return (
-    <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+    <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between">
       {/* Left side */}
       <div className="flex items-center space-x-4">
         <button
           onClick={onMenuToggle}
-          className="p-2 rounded-lg hover:bg-gray-100 transition-colors lg:hidden"
+          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors lg:hidden"
         >
-          <Menu className="w-5 h-5 text-gray-600" />
+          <Menu className="w-5 h-5 text-gray-600 dark:text-gray-300" />
         </button>
         
         <div className="flex items-center space-x-3">
@@ -29,8 +29,8 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen }) => {
             <span className="text-white font-bold text-sm">CM</span>
           </div>
           <div className="hidden sm:block">
-            <h1 className="text-xl font-bold text-gray-900">ChainMind</h1>
-            <p className="text-xs text-gray-500">AI-Powered DeFi Assistant</p>
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">ChainMind</h1>
+            <p className="text-xs text-gray-500 dark:text-gray-400">AI-Powered DeFi Assistant</p>
           </div>
         </div>
       </div>
@@ -39,8 +39,8 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen }) => {
       <div className="flex items-center space-x-3">
         {/* Notifications */}
         {isConnected && (
-          <button className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors">
-            <Bell className="w-5 h-5 text-gray-600" />
+          <button className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+            <Bell className="w-5 h-5 text-gray-600 dark:text-gray-300" />
             <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
           </button>
         )}
@@ -48,9 +48,9 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen }) => {
         {/* Settings */}
         <button 
           onClick={() => navigate('/settings')}
-          className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         >
-          <Settings className="w-5 h-5 text-gray-600" />
+          <Settings className="w-5 h-5 text-gray-600 dark:text-gray-300" />
         </button>
 
         {/* Wallet Connection */}

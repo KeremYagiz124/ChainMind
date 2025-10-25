@@ -1,7 +1,7 @@
 import Redis from 'ioredis';
 import { logger } from '../utils/logger';
 
-let redisClient: Redis;
+let redisClient: Redis | null = null;
 
 export const initializeRedis = async (): Promise<void> => {
   try {
@@ -46,7 +46,7 @@ export const initializeRedis = async (): Promise<void> => {
   }
 };
 
-export const getRedisClient = (): Redis => {
+export const getRedisClient = (): Redis | null => {
   return redisClient;
 };
 
@@ -64,7 +64,7 @@ export const cacheSet = async (key: string, value: any, ttl: number = 3600): Pro
       await redisClient.setex(key, ttl, JSON.stringify(value));
     }
   } catch (error) {
-    logger.error('Cache set error:', error);
+    // Silent fail - cache is optional
   }
 };
 
