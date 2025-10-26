@@ -490,7 +490,7 @@ export class PortfolioService {
       // Simplified storage - just log for now
       logger.info(`Portfolio data received for ${portfolio.address} with ${portfolio.tokens.length} tokens`);
     } catch (error) {
-      logger.error('Error storing portfolio in database:', error);
+      logger.error('Error storing portfolio in DB:', error);
     }
   }
 

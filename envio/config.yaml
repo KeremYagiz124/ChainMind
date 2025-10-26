@@ -1,0 +1,66 @@
+name: chainmind-indexer
+description: Multi-chain blockchain indexer for ChainMind DeFi platform
+networks:
+  - id: 1
+    start_block: 18000000
+    contracts:
+      - name: ChainMindRegistry
+        address:
+          - "0x0000000000000000000000000000000000000000" # Placeholder - update after deployment
+        handler: src/EventHandlers.ts
+        events:
+          - event: "UserRegistered(address indexed user, uint256 timestamp)"
+          - event: "PortfolioUpdated(address indexed user, uint256 totalValue)"
+          - event: "AlertCreated(address indexed user, string alertType, uint256 timestamp)"
+      
+      - name: ChainMindToken
+        address:
+          - "0x0000000000000000000000000000000000000000" # Placeholder - update after deployment
+        handler: src/EventHandlers.ts
+        events:
+          - event: "Transfer(address indexed from, address indexed to, uint256 value)"
+          - event: "Approval(address indexed owner, address indexed spender, uint256 value)"
+
+  - id: 137 # Polygon
+    start_block: 48000000
+    contracts:
+      - name: ChainMindRegistry
+        address:
+          - "0x0000000000000000000000000000000000000000"
+        handler: src/EventHandlers.ts
+        events:
+          - event: "UserRegistered(address indexed user, uint256 timestamp)"
+          - event: "PortfolioUpdated(address indexed user, uint256 totalValue)"
+
+  - id: 42161 # Arbitrum
+    start_block: 140000000
+    contracts:
+      - name: ChainMindRegistry
+        address:
+          - "0x0000000000000000000000000000000000000000"
+        handler: src/EventHandlers.ts
+        events:
+          - event: "UserRegistered(address indexed user, uint256 timestamp)"
+          - event: "PortfolioUpdated(address indexed user, uint256 totalValue)"
+
+  - id: 10 # Optimism
+    start_block: 110000000
+    contracts:
+      - name: ChainMindRegistry
+        address:
+          - "0x0000000000000000000000000000000000000000"
+        handler: src/EventHandlers.ts
+        events:
+          - event: "UserRegistered(address indexed user, uint256 timestamp)"
+          - event: "PortfolioUpdated(address indexed user, uint256 totalValue)"
+
+  - id: 8453 # Base
+    start_block: 5000000
+    contracts:
+      - name: ChainMindRegistry
+        address:
+          - "0x0000000000000000000000000000000000000000"
+        handler: src/EventHandlers.ts
+        events:
+          - event: "UserRegistered(address indexed user, uint256 timestamp)"
+          - event: "PortfolioUpdated(address indexed user, uint256 totalValue)"

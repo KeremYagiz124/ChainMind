@@ -32,6 +32,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isAiTyping, setIsAiTyping] = useState(false);
+  const [aiThinkingMessage, setAiThinkingMessage] = useState('Analyzing market data...');
   const [conversationId, setConversationId] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { address, isConnected } = useAccount();
@@ -64,6 +65,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
     return () => { leaveChat(conversationId); };
   }, [conversationId, wsConnected]);
 
+  const thinkingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleNewMessage = useCallback((message: {
     id: string;
     content: string;
@@ -83,7 +86,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
       if (prev.find(m => m.id === newMessage.id)) return prev;
       return [...prev, newMessage];
     });
+    
+    // Clear thinking interval and hide typing
+    if (thinkingIntervalRef.current) {
+      clearInterval(thinkingIntervalRef.current);
+      thinkingIntervalRef.current = null;
+    }
     setIsLoading(false);
+    setIsAiTyping(false);
   }, [conversationId]);
 
   // WebSocket: Listen for new messages
@@ -167,7 +177,23 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
 
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
+    setIsAiTyping(true); // Show typing indicator immediately
     setInputMessage('');
+    
+    // Show dynamic thinking messages
+    const thinkingMessages = [
+      '🔍 Analyzing market data...',
+      '📊 Fetching real-time prices...',
+      '🧠 Processing your request...',
+      '💡 Generating insights...',
+      '📈 Evaluating trends...'
+    ];
+    
+    let messageIndex = 0;
+    thinkingIntervalRef.current = setInterval(() => {
+      setAiThinkingMessage(thinkingMessages[messageIndex % thinkingMessages.length]);
+      messageIndex++;
+    }, 2000);
 
     // Try WebSocket first, fallback to HTTP
     if (wsConnected && conversationId) {
@@ -215,7 +241,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
         
         setMessages(prev => [...prev, errorMessage]);
       } finally {
+        if (thinkingIntervalRef.current) {
+          clearInterval(thinkingIntervalRef.current);
+          thinkingIntervalRef.current = null;
+        }
         setIsLoading(false);
+        setIsAiTyping(false); // Hide typing indicator
       }
     }
   };
@@ -316,8 +347,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
                 </div>
                 <div className="bg-gray-100 dark:bg-gray-800 px-4 py-2 rounded-2xl rounded-bl-md">
                   <div className="flex items-center space-x-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
-                    <span className="text-sm text-gray-500 dark:text-gray-400">ChainMind is thinking...</span>
+                    <Loader2 className="w-4 h-4 animate-spin text-purple-500" />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{aiThinkingMessage}</span>
                   </div>
                 </div>
               </div>

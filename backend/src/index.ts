@@ -57,26 +57,21 @@ const socketService = new SocketService(io);
 
 // Initialize services
 async function initializeServices() {
+  // Try to initialize database (non-critical)
   try {
-    // Try to initialize database (non-critical)
-    try {
-      await initializeDatabase();
-    } catch (dbError) {
-      logger.warn('Database initialization failed, continuing without database');
-    }
-
-    // Try to initialize Redis (non-critical)
-    try {
-      await initializeRedis();
-    } catch (redisError) {
-      logger.warn('Redis initialization failed, continuing without cache');
-    }
-
-    logger.info('✅ Core services initialized');
-  } catch (error) {
-    logger.error('Service initialization error:', error);
-    // Don't exit - continue without optional services
+    await initializeDatabase();
+  } catch (dbError) {
+    logger.warn('⚠️ Database initialization failed, continuing without database');
   }
+
+  // Try to initialize Redis (non-critical)
+  try {
+    await initializeRedis();
+  } catch (redisError) {
+    logger.warn('⚠️ Redis initialization failed, continuing without cache');
+  }
+
+  logger.info('✅ Core services initialized');
 }
 
 // Graceful shutdown
@@ -100,15 +95,22 @@ process.on('SIGINT', () => {
 async function startServer() {
   await initializeServices();
   
-  server.listen(PORT, () => {
-    logger.info(`🚀 ChainMind Backend Server running on port ${PORT}`);
-    logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-    logger.info(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+  return new Promise((resolve, reject) => {
+    const serverInstance = server.listen(PORT, () => {
+      logger.info(`🚀 ChainMind Backend Server running on port ${PORT}`);
+      logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+      logger.info(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+      resolve(serverInstance);
+    });
+    
+    serverInstance.on('error', (error: Error) => {
+      reject(error);
+    });
   });
 }
 
-startServer().catch((error) => {
-  logger.error('Failed to start server:', error);
+startServer().catch(error => {
+  logger.error('Critical server error:', error);
   process.exit(1);
 });
 

@@ -33,7 +33,7 @@ export class AIService {
 
   constructor() {
     this.aiProvider = process.env.AI_PROVIDER || 'gemini';
-    
+
     // Initialize based on provider
     switch (this.aiProvider) {
       case 'gemini':
@@ -97,8 +97,17 @@ export class AIService {
 
     try {
       if (this.aiProvider === 'gemini' && this.gemini) {
-        // Try multiple model names since Google keeps changing them
-        const modelNames = ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro-latest', 'gemini-1.5-pro'];
+        // Try multiple model names (prefer stable 2.5 family, then latest)
+        const envModel = (process.env.GEMINI_MODEL || '').trim();
+        const candidates = [
+          ...(envModel ? [envModel] : []),
+          // Use correct model names from Gemini API
+          'models/gemini-2.5-flash',
+          'models/gemini-2.5-pro',
+          'models/gemini-pro-latest',
+          'models/gemini-flash-latest'
+        ];
+        const modelNames = Array.from(new Set(candidates));
         
         for (const modelName of modelNames) {
           try {
@@ -108,10 +117,12 @@ export class AIService {
             const intent = response.text().trim().toLowerCase() || 'general';
             return intent;
           } catch (modelError: any) {
-            if (modelError.status === 404) {
-              console.log(`Model ${modelName} not found, trying next...`);
+            const status = modelError?.status || modelError?.response?.status;
+            if (status === 404 || status === 429 || status === 400 || status === 403) {
+              console.log(`Model ${modelName} failed with status ${status}, trying next...`);
               continue;
             }
+            // Unknown/critical error: rethrow
             throw modelError;
           }
         }
@@ -138,12 +149,18 @@ export class AIService {
     const data: any = {};
 
     try {
+      // Always fetch market overview for investment-related questions
+      const investmentKeywords = ['buy', 'invest', 'coin', 'token', 'price', 'should i', 'recommend', 'which', 'best'];
+      const isInvestmentQuestion = investmentKeywords.some(keyword => message.toLowerCase().includes(keyword));
+
       switch (intent) {
         case 'portfolio':
           if (context.userAddress) {
             data.portfolio = await this.portfolioService.getPortfolioData(context.userAddress);
             data.portfolioAnalysis = await this.portfolioService.analyzePortfolio(context.userAddress);
           }
+          // Always include market data for portfolio analysis
+          data.marketData = await this.marketService.getMarketOverview();
           break;
 
         case 'market':
@@ -152,6 +169,13 @@ export class AIService {
           const tokens = this.extractTokenSymbols(message);
           if (tokens.length > 0) {
             data.tokenPrices = await this.marketService.getTokenPrices(tokens);
+          }
+          // If no specific tokens mentioned, get top 20+ coins including altcoins
+          if (tokens.length === 0) {
+            data.tokenPrices = await this.marketService.getTokenPrices([
+              'BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOGE', 'MATIC', 'LINK', 'UNI',
+              'AAVE', 'AVAX', 'DOT', 'ATOM', 'LTC', 'SHIB', 'TRX', 'ARB', 'OP'
+            ]);
           }
           break;
 
@@ -166,12 +190,25 @@ export class AIService {
           break;
 
         case 'education':
-          // No additional data needed for educational content
+          // For investment questions, include market data even in education mode
+          if (isInvestmentQuestion) {
+            data.marketData = await this.marketService.getMarketOverview();
+            data.tokenPrices = await this.marketService.getTokenPrices([
+              'BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOGE', 'MATIC', 'LINK', 'UNI',
+              'AAVE', 'AVAX', 'DOT', 'ATOM', 'LTC', 'SHIB', 'TRX', 'ARB', 'OP'
+            ]);
+          }
           break;
 
         default:
-          // General queries might need market overview
+          // Always fetch market data for general investment queries
           data.marketOverview = await this.marketService.getMarketOverview();
+          if (isInvestmentQuestion) {
+            data.tokenPrices = await this.marketService.getTokenPrices([
+              'BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOGE', 'MATIC', 'LINK', 'UNI',
+              'AAVE', 'AVAX', 'DOT', 'ATOM', 'LTC', 'SHIB', 'TRX', 'ARB', 'OP'
+            ]);
+          }
           break;
       }
     } catch (error) {
@@ -196,8 +233,17 @@ export class AIService {
       let modelUsed = '';
 
       if (this.aiProvider === 'gemini' && this.gemini) {
-        // Try multiple model names since Google keeps changing them
-        const modelNames = ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro-latest', 'gemini-1.5-pro'];
+        // Try multiple model names (prefer stable 2.5 family, then latest)
+        const envModel = (process.env.GEMINI_MODEL || '').trim();
+        const candidates = [
+          ...(envModel ? [envModel] : []),
+          // Use correct model names from Gemini API
+          'models/gemini-2.5-flash',
+          'models/gemini-2.5-pro',
+          'models/gemini-pro-latest',
+          'models/gemini-flash-latest'
+        ];
+        const modelNames = Array.from(new Set(candidates));
         
         for (const modelName of modelNames) {
           try {
@@ -217,8 +263,9 @@ export class AIService {
             tokensUsed = 0; // Gemini doesn't provide token usage in free tier
             break; // Success, exit the loop
           } catch (modelError: any) {
-            if (modelError.status === 404) {
-              console.log(`Model ${modelName} not found, trying next...`);
+            const status = modelError?.status || modelError?.response?.status;
+            if (status === 404 || status === 429 || status === 400 || status === 403) {
+              console.log(`Model ${modelName} failed with status ${status}, trying next...`);
               continue;
             }
             throw modelError;
@@ -332,15 +379,15 @@ export class AIService {
   }
 
   private buildSystemPrompt(intent: string, contextData: any): string {
-    let basePrompt = `You are ChainMind, an intelligent blockchain and DeFi assistant. You provide helpful, accurate, and educational responses about cryptocurrency, DeFi protocols, and blockchain technology.
+    let basePrompt = `You are ChainMind, a professional crypto market analyst with access to real-time market data.
 
-Key guidelines:
-- Be conversational and friendly
-- Provide accurate, up-to-date information
-- Always include risk warnings for financial advice
-- Use emojis sparingly but effectively
-- Format responses with markdown for better readability
-- If you don't know something, say so clearly
+When analyzing investments:
+- Use the ACTUAL market data provided below
+- Cite specific prices and 24h changes
+- Recommend coins based on data patterns (momentum, volume, market position)
+- Be conversational and insightful
+- Keep responses focused and actionable
+- Respond in ENGLISH
 
 `;
 
@@ -348,6 +395,7 @@ Key guidelines:
       case 'portfolio':
         basePrompt += `You are analyzing a user's portfolio. Use the provided portfolio data to give personalized insights.
 Portfolio Data: ${JSON.stringify(contextData.portfolio || {})}
+Market Data: ${JSON.stringify(contextData.marketData || {})}
 Analysis: ${JSON.stringify(contextData.portfolioAnalysis || {})}
 
 Focus on:
@@ -358,15 +406,17 @@ Focus on:
         break;
 
       case 'market':
-        basePrompt += `You are providing market analysis and insights.
-Market Data: ${JSON.stringify(contextData.marketData || {})}
-Token Prices: ${JSON.stringify(contextData.tokenPrices || {})}
+        const marketData = contextData.marketData || {};
+        const top100 = marketData.top100Coins || [];
+        
+        basePrompt += `CURRENT CRYPTO MARKET DATA:
 
-Focus on:
-- Price movements and trends
-- Market sentiment
-- Technical analysis insights
-- Trading opportunities and risks`;
+Market Cap: $${(marketData.totalMarketCap / 1e12).toFixed(2)}T | 24h Volume: $${(marketData.totalVolume24h / 1e9).toFixed(0)}B | BTC Dominance: ${marketData.btcDominance?.toFixed(1)}%
+
+TOP 100 COINS (Rank, Symbol, Price, 24h Change):
+${top100.slice(0, 50).map((c: any) => `${c.rank}. ${c.symbol}: $${c.price < 1 ? c.price.toFixed(4) : c.price.toFixed(2)} (${c.change24h > 0 ? '+' : ''}${c.change24h?.toFixed(1)}%)`).join('\n')}
+
+Analyze this data and provide investment insights. Focus on coins with strong momentum, good volume, and solid fundamentals. Consider different risk levels (large cap = safer, small cap = higher risk/reward).`;
         break;
 
       case 'security':
@@ -384,11 +434,38 @@ Focus on:
       case 'education':
         basePrompt += `You are teaching blockchain and DeFi concepts.
 
+${contextData.marketData || contextData.tokenPrices ? `
+CURRENT MARKET DATA FOR CONTEXT:
+Market Overview: ${JSON.stringify(contextData.marketData || {}, null, 2)}
+Token Prices: ${JSON.stringify(contextData.tokenPrices || {}, null, 2)}
+
+When discussing investments, use this REAL data to provide concrete examples.
+` : ''}
+
 Focus on:
 - Clear, beginner-friendly explanations
-- Step-by-step guides
-- Real-world examples
-- Best practices and safety tips`;
+- Use REAL market data when available
+- Provide specific examples with actual prices
+- Keep responses concise (under 200 words for investment topics)
+- Brief risk warnings`;
+        break;
+      
+      default:
+        // For general queries with market data
+        if (contextData.marketOverview || contextData.tokenPrices || contextData.marketData) {
+          const generalMarketData = contextData.marketOverview || contextData.marketData || {};
+          const top100General = generalMarketData.top100Coins || [];
+          
+          basePrompt += `
+CURRENT MARKET DATA:
+
+Market Cap: $${(generalMarketData.totalMarketCap / 1e12).toFixed(2)}T | BTC Dominance: ${generalMarketData.btcDominance?.toFixed(1)}%
+
+TOP 50 COINS:
+${top100General.slice(0, 50).map((c: any) => `${c.rank}. ${c.symbol}: $${c.price < 1 ? c.price.toFixed(4) : c.price.toFixed(2)} (${c.change24h > 0 ? '+' : ''}${c.change24h?.toFixed(1)}%)`).join('\n')}
+
+Analyze this market data and provide actionable investment insights based on momentum, volume, and market positioning.`;
+        }
         break;
     }
 

@@ -4,7 +4,13 @@
   "description": "Frontend React application for ChainMind AI-powered DeFi chatbot",
   "private": true,
   "dependencies": {
+    "@apollo/client": "^3.8.0",
+    "@lit-protocol/lit-node-client": "^3.1.0",
+    "@lit-protocol/auth-helpers": "^3.1.0",
+    "@lit-protocol/constants": "^3.1.0",
+    "@lit-protocol/types": "^3.1.0",
     "@rainbow-me/rainbowkit": "^1.1.0",
+    "graphql": "^16.8.0",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-query": "^4.35.3",

@@ -110,14 +110,15 @@ router.post('/message', asyncHandler(async (req: Request, res: Response) => {
   }
 }));
 
-// GET /api/chat/conversations/:userAddress - Get conversation messages
+// GET /api/chat/conversations/:userAddress - Get all conversations for a user
 router.get('/conversations/:userAddress', asyncHandler(async (req: Request, res: Response) => {
   const { userAddress } = req.params;
   
   if (!db) {
-    return res.status(503).json({
-      success: false,
-      error: 'Database not available'
+    // Return empty array instead of 503 when DB not available
+    return res.json({
+      success: true,
+      data: []
     });
   }
   

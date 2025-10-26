@@ -47,12 +47,17 @@ export const initializeDatabase = async (): Promise<void> => {
     });
 
     // Test database connection with timeout
-    await Promise.race([
-      prisma.$connect(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Database connection timeout')), 5000)
-      )
-    ]);
+    try {
+      await Promise.race([
+        prisma.$connect(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Database connection timeout')), 5000)
+        )
+      ]);
+    } catch (error) {
+      logger.error('❌ Database connection failed:', error);
+      throw error;
+    }
     
     logger.info('✅ Database connected successfully');
 

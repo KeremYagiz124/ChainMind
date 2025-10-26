@@ -226,19 +226,19 @@ export class MarketService {
 
       const globalData = globalResponse.data.data;
 
-      // Get top gainers and losers
+      // Get top 250 coins (CoinGecko free tier limit)
       const marketsResponse = await axios.get(
         'https://api.coingecko.com/api/v3/coins/markets',
         {
           params: {
             vs_currency: 'usd',
             order: 'market_cap_desc',
-            per_page: 100,
+            per_page: 250,
             page: 1,
             sparkline: false,
             price_change_percentage: '24h'
           },
-          timeout: 10000
+          timeout: 15000
         }
       );
 
@@ -267,14 +267,26 @@ export class MarketService {
         lastUpdated: new Date()
       }));
 
+      // Get top 100 coins by market cap for comprehensive analysis
+      const top100Coins = markets.slice(0, 100).map((coin: any) => ({
+        symbol: coin.symbol.toUpperCase(),
+        name: coin.name,
+        price: coin.current_price,
+        change24h: coin.price_change_percentage_24h,
+        volume24h: coin.total_volume,
+        marketCap: coin.market_cap,
+        rank: coin.market_cap_rank
+      }));
+
       const overview: MarketOverview = {
         totalMarketCap: globalData.total_market_cap.usd,
         totalVolume24h: globalData.total_volume.usd,
         btcDominance: globalData.market_cap_percentage.btc,
         ethDominance: globalData.market_cap_percentage.eth,
         topGainers,
-        topLosers
-      };
+        topLosers,
+        top100Coins
+      } as any;
 
       // Cache for 5 minutes
       await cacheSet(cacheKey, overview, 300);

@@ -1,0 +1,66 @@
+type UserRegistered @entity {
+  id: ID!
+  user: String!
+  timestamp: BigInt!
+  chainId: Int!
+  blockNumber: BigInt!
+  transactionHash: String!
+}
+
+type PortfolioUpdated @entity {
+  id: ID!
+  user: String!
+  totalValue: BigInt!
+  timestamp: BigInt!
+  chainId: Int!
+  blockNumber: BigInt!
+  transactionHash: String!
+}
+
+type AlertCreated @entity {
+  id: ID!
+  user: String!
+  alertType: String!
+  timestamp: BigInt!
+  chainId: Int!
+  blockNumber: BigInt!
+  transactionHash: String!
+}
+
+type Transfer @entity {
+  id: ID!
+  from: String!
+  to: String!
+  value: BigInt!
+  timestamp: BigInt!
+  chainId: Int!
+  blockNumber: BigInt!
+  transactionHash: String!
+}
+
+type Approval @entity {
+  id: ID!
+  owner: String!
+  spender: String!
+  value: BigInt!
+  timestamp: BigInt!
+  chainId: Int!
+  blockNumber: BigInt!
+  transactionHash: String!
+}
+
+type UserStats @entity {
+  id: ID!
+  user: String!
+  registeredAt: BigInt!
+  lastActive: BigInt!
+  totalPortfolioValue: BigInt!
+  alertCount: Int!
+}
+
+type TokenBalance @entity {
+  id: ID!
+  address: String!
+  balance: BigInt!
+  lastUpdated: BigInt!
+}

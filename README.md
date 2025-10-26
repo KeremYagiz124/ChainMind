@@ -261,9 +261,9 @@ DATABASE_URL="mongodb+srv://username:password@your-cluster.mongodb.net/?retryWri
 
 # APIs
 OPENAI_API_KEY="your_openai_api_key"
+GEMINI_API_KEY="your_gemini_api_key"
 PYTH_NETWORK_URL="https://hermes.pyth.network"
 BLOCKSCOUT_API_URL="https://eth.blockscout.com/api"
-ENVIO_API_KEY="your_envio_api_key"
 
 # Blockchain RPCs
 ETHEREUM_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/your_key"
@@ -283,6 +283,7 @@ LIT_NETWORK="cayenne"
 REACT_APP_API_URL="http://localhost:3001"
 REACT_APP_WALLETCONNECT_PROJECT_ID="your_project_id"
 REACT_APP_ALCHEMY_API_KEY="your_alchemy_key"
+REACT_APP_ENVIO_ENDPOINT="https://indexer.bigdevenergy.link/YOUR_INDEXER_ID/v1/graphql"
 ```
 
 ## 🧪 Testing
@@ -336,6 +337,19 @@ npm run deploy:polygon
 npm run deploy:arbitrum
 ```
 
+### Envio Indexer Deployment
+See [ENVIO_DEPLOYMENT.md](ENVIO_DEPLOYMENT.md) for detailed instructions.
+
+**Quick Steps:**
+1. Deploy smart contracts to desired chains
+2. Update contract addresses in `envio/config.yaml`
+3. Go to https://envio.dev/app and create indexer
+4. Upload config files from `envio/` folder
+5. Deploy and copy GraphQL endpoint
+6. Update `REACT_APP_ENVIO_ENDPOINT` in frontend `.env`
+
+**Note:** Envio CLI has Windows compatibility issues. Use web dashboard for deployment.
+
 ## 🛠️ Technology Stack
 
 ### Core Technologies
@@ -345,12 +359,12 @@ npm run deploy:arbitrum
 - **Blockchain**: ethers.js, Hardhat, OpenZeppelin
 
 ### Sponsor Integrations
-- **ASI Alliance**: OpenAI GPT-4 for conversational AI
-- **Pyth Network**: Real-time price feeds and market data
-- **Lit Protocol**: Decentralized authentication and encryption
-- **Envio**: Multi-chain blockchain indexing and GraphQL API
-- **Blockscout**: Blockchain explorer API for contract analysis
-- **Hardhat**: Smart contract development and testing framework
+- **ASI Alliance ($10,000)**: Gemini AI for conversational agent with natural language processing
+- **Pyth Network ($5,000)**: Real-time price feeds and market data across multiple chains
+- **Lit Protocol ($5,000)**: Decentralized authentication, session signing, and encrypted data storage
+- **Envio ($5,000)**: Multi-chain blockchain indexing with GraphQL API (see [ENVIO_DEPLOYMENT.md](ENVIO_DEPLOYMENT.md))
+- **Blockscout ($10,000)**: Blockchain explorer API for smart contract verification and analysis
+- **Hardhat ($5,000)**: Smart contract development, testing, and deployment framework
 
 ### Web3 Stack
 - **Wallet Integration**: RainbowKit, wagmi, viem
