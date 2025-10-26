@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { API_ENDPOINTS } from '../config/api';
+import { showErrorToast, showSuccessToast, showLoadingToast, dismissToast } from '../utils/errorHandler';
+import { logger } from '../utils/logger';
 import { 
   Shield, 
   AlertTriangle, 
@@ -49,7 +52,7 @@ const Security: React.FC = () => {
 
   const fetchKnownProtocols = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/security/protocols');
+      const response = await fetch(API_ENDPOINTS.SECURITY_PROTOCOLS);
       if (response.ok) {
         const result = await response.json();
         if (result.success) {
@@ -57,16 +60,17 @@ const Security: React.FC = () => {
         }
       }
     } catch (err) {
-      console.error('Failed to fetch known protocols:', err);
+      logger.error('Failed to fetch known protocols:', err);
     }
   };
 
   const analyzeProtocol = async (protocolName: string) => {
     setLoading(true);
     setError(null);
+    const toastId = showLoadingToast(`Analyzing ${protocolName}...`);
 
     try {
-      const response = await fetch('http://localhost:3001/api/security/analyze', {
+      const response = await fetch(API_ENDPOINTS.SECURITY_ANALYZE, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -84,18 +88,34 @@ const Security: React.FC = () => {
           ...result.data,
           lastAnalyzed: new Date(result.data.lastAnalyzed)
         });
+        showSuccessToast(`${protocolName} analyzed successfully`);
       } else {
         throw new Error(result.error || 'Analysis failed');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      const errorMsg = err instanceof Error ? err.message : 'An error occurred';
+      setError(errorMsg);
+      showErrorToast(err, `Failed to analyze ${protocolName}`);
     } finally {
+      dismissToast(toastId);
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchKnownProtocols();
+    let isMounted = true;
+    
+    const loadProtocols = async () => {
+      if (isMounted) {
+        await fetchKnownProtocols();
+      }
+    };
+    
+    loadProtocols();
+    
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const getRiskColor = (riskLevel: string) => {

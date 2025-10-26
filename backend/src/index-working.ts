@@ -16,6 +16,11 @@ import chatRoutes from './routes/chatRoutes';
 import portfolioRoutes from './routes/portfolioRoutes';
 import marketRoutes from './routes/marketRoutes';
 import securityRoutes from './routes/securityRoutes';
+import authRoutes from './routes/authRoutes';
+
+// Import WebSocket handlers
+import { WebSocketHandlers } from './websocket/handlers';
+import { apiLimiter } from './middleware/rateLimiter';
 
 const app = express();
 const server = createServer(app);
@@ -45,57 +50,35 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API Routes
-app.use('/api/chat', chatRoutes);
-app.use('/api/portfolio', portfolioRoutes);
-app.use('/api/market', marketRoutes);
-app.use('/api/security', securityRoutes);
+// API Routes with rate limiting
+app.use('/api/auth', authRoutes);
+app.use('/api/chat', apiLimiter, chatRoutes);
+app.use('/api/portfolio', apiLimiter, portfolioRoutes);
+app.use('/api/market', apiLimiter, marketRoutes);
+app.use('/api/security', apiLimiter, securityRoutes);
 
-// Basic Socket.IO for real-time chat
-io.on('connection', (socket) => {
-  logger.info(`Client connected: ${socket.id}`);
+// Initialize WebSocket handlers
+const wsHandlers = new WebSocketHandlers(io);
+wsHandlers.initialize();
 
-  socket.on('join-chat', (data) => {
-    socket.join(data.conversationId);
-    logger.info(`Client ${socket.id} joined conversation ${data.conversationId}`);
-  });
+// Expose WebSocket handlers for broadcasting
+app.set('wsHandlers', wsHandlers);
 
-  socket.on('send-message', async (data) => {
-    try {
-      // Echo the message back for now
-      io.to(data.conversationId).emit('new-message', {
-        id: Date.now().toString(),
-        content: data.content,
-        sender: 'user',
-        timestamp: new Date().toISOString()
-      });
-
-      // Send AI response
-      setTimeout(() => {
-        io.to(data.conversationId).emit('new-message', {
-          id: (Date.now() + 1).toString(),
-          content: `I received your message: "${data.content}". This is a simplified response for testing.`,
-          sender: 'assistant',
-          timestamp: new Date().toISOString()
-        });
-      }, 1000);
-    } catch (error) {
-      logger.error('Socket message error:', error);
-      socket.emit('error', { message: 'Failed to process message' });
-    }
-  });
-
-  socket.on('disconnect', () => {
-    logger.info(`Client disconnected: ${socket.id}`);
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Route not found',
+    path: req.path
   });
 });
 
 // Error handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   logger.error('Unhandled error:', err);
-  res.status(500).json({
+  res.status(err.status || 500).json({
     success: false,
-    error: 'Internal server error'
+    error: err.message || 'Internal server error'
   });
 });
 
@@ -111,12 +94,45 @@ async function startServer() {
       logger.warn('⚠️ Database initialization failed, continuing without DB:', dbError);
     }
 
+    // Graceful shutdown
+    const gracefulShutdown = () => {
+      logger.info('Received shutdown signal, closing server gracefully...');
+      
+      wsHandlers.cleanup();
+      
+      server.close(() => {
+        logger.info('Server closed');
+        process.exit(0);
+      });
+
+      // Force close after 10 seconds
+      setTimeout(() => {
+        logger.error('Forced shutdown after timeout');
+        process.exit(1);
+      }, 10000);
+    };
+
+    process.on('SIGTERM', gracefulShutdown);
+    process.on('SIGINT', gracefulShutdown);
+
     // Start server
-    server.listen(PORT, () => {
-      logger.info(`🚀 ChainMind Backend running on port ${PORT}`);
-      logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-      logger.info(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
-    });
+    initializeDatabase()
+      .then(() => {
+        server.listen(PORT, () => {
+          logger.info('🚀 ChainMind Backend Server Started');
+          logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          logger.info(`📡 Server: http://localhost:${PORT}`);
+          logger.info(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+          logger.info(`🔗 Frontend: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+          logger.info(`🔌 WebSocket: Ready`);
+          logger.info(`🤖 AI Provider: ${process.env.AI_PROVIDER || 'gemini'}`);
+          logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        });
+      })
+      .catch((error) => {
+        logger.error('❌ Failed to start server:', error);
+        process.exit(1);
+      });
   } catch (error) {
     logger.error('❌ Failed to start server:', error);
     process.exit(1);

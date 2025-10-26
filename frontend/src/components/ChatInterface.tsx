@@ -1,9 +1,12 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Bot, User, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { useSearchParams } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import { useWebSocket } from '../hooks/useWebSocket';
+import { API_ENDPOINTS } from '../config/api';
+import { showErrorToast, showSuccessToast } from '../utils/errorHandler';
+import { chatLogger } from '../utils/logger';
 
 interface Message {
   id: string;
@@ -28,28 +31,90 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isAiTyping, setIsAiTyping] = useState(false);
   const [conversationId, setConversationId] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { address, isConnected } = useAccount();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { 
+    isConnected: wsConnected, 
+    sendMessage: wsSendMessage, 
+    joinChat, 
+    leaveChat,
+    onNewMessage,
+    onAiTyping
+  } = useWebSocket();
 
   // Load conversation from URL parameter
   useEffect(() => {
     const convId = searchParams.get('conversation');
     if (convId && isConnected && address) {
       loadConversation(convId);
-      // Remove the parameter from URL after loading
       setSearchParams({});
     } else if (isConnected && address && !conversationId) {
-      // Create new conversation ID when wallet connects
-      setConversationId(`conv_${address}_${Date.now()}`);
+      const newConvId = `conv_${address}_${Date.now()}`;
+      setConversationId(newConvId);
     }
   }, [isConnected, address, searchParams]);
+
+  // WebSocket: Join/leave chat room on conversation change
+  useEffect(() => {
+    if (!conversationId || !wsConnected) return;
+    joinChat(conversationId);
+    return () => { leaveChat(conversationId); };
+  }, [conversationId, wsConnected]);
+
+  const handleNewMessage = useCallback((message: {
+    id: string;
+    content: string;
+    sender: string;
+    timestamp: string | Date;
+  }) => {
+    const newMessage: Message = {
+      id: message.id,
+      content: message.content,
+      sender: message.sender === 'assistant' ? 'ai' : message.sender as 'user' | 'ai',
+      timestamp: new Date(message.timestamp),
+      conversationId: conversationId
+    };
+
+    setMessages(prev => {
+      // Avoid duplicates
+      if (prev.find(m => m.id === newMessage.id)) return prev;
+      return [...prev, newMessage];
+    });
+    setIsLoading(false);
+  }, [conversationId]);
+
+  // WebSocket: Listen for new messages
+  useEffect(() => {
+    if (!wsConnected) return;
+    const unsubscribe = onNewMessage(handleNewMessage);
+    return unsubscribe;
+  }, [wsConnected, handleNewMessage]);
+
+  const handleAiTyping = useCallback((data: {
+    conversationId: string;
+    typing: boolean;
+  }) => {
+    if (data.conversationId === conversationId) {
+      setIsAiTyping(data.typing);
+    }
+  }, [conversationId]);
+
+  // WebSocket: Listen for AI typing indicator
+  useEffect(() => {
+    if (!wsConnected || !conversationId) return;
+    
+    const unsubscribe = onAiTyping(handleAiTyping);
+
+    return unsubscribe;
+  }, [wsConnected, conversationId, handleAiTyping]);
 
   const loadConversation = async (convId: string) => {
     try {
       setIsLoading(true);
-      const response = await fetch(`http://localhost:3001/api/chat/conversation/${convId}`);
+      const response = await fetch(API_ENDPOINTS.CHAT_CONVERSATION(convId));
       
       if (!response.ok) {
         throw new Error('Failed to load conversation');
@@ -69,11 +134,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
         }));
         
         setMessages(loadedMessages);
-        toast.success('Conversation loaded successfully');
+        showSuccessToast('Conversation loaded successfully');
       }
-    } catch (error) {
-      console.error('Error loading conversation:', error);
-      toast.error('Failed to load conversation');
+    } catch (err) {
+      chatLogger.error('Failed to load conversation:', err);
+      showErrorToast(err, 'Failed to load conversation');
       // Create a new conversation if loading fails
       setConversationId(`conv_${address}_${Date.now()}`);
     } finally {
@@ -92,11 +157,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
   const sendMessage = async () => {
     if (!inputMessage.trim()) return;
 
-    // Capture the current input before clearing state
     const contentToSend = inputMessage;
-
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: `msg_${Date.now()}_user`,
       content: contentToSend,
       sender: 'user',
       timestamp: new Date()
@@ -104,52 +167,56 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
 
     setMessages(prev => [...prev, userMessage]);
     setIsLoading(true);
-    // Clear the input after we captured it
     setInputMessage('');
 
-    try {
-      const response = await fetch('http://localhost:3001/api/chat/message', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: contentToSend,
-          userId: address || 'anonymous',
-          userAddress: address,
-          conversationId: conversationId
-        }),
-      });
+    // Try WebSocket first, fallback to HTTP
+    if (wsConnected && conversationId) {
+      wsSendMessage(conversationId, contentToSend, address);
+    } else {
+      // Fallback to HTTP API
+      try {
+        const response = await fetch(API_ENDPOINTS.CHAT_MESSAGE, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: contentToSend,
+            userAddress: address,
+            conversationId: conversationId
+          }),
+        });
 
-      if (!response.ok) {
-        throw new Error('Failed to send message');
+        if (!response.ok) {
+          throw new Error('Failed to send message');
+        }
+
+        const data = await response.json();
+
+        const aiMessage: Message = {
+          id: `msg_${Date.now()}_ai`,
+          content: data.message || data.aiMessage?.content || 'Sorry, I could not process your request.',
+          sender: 'ai',
+          timestamp: new Date(),
+          conversationId: data.conversation?.id
+        };
+
+        setMessages(prev => [...prev, aiMessage]);
+      } catch (error) {
+        chatLogger.error('Error sending message:', error);
+        showErrorToast(error, 'Failed to send message. Please try again.');
+        
+        const errorMessage: Message = {
+          id: `msg_${Date.now()}_error`,
+          content: 'Sorry, I\'m having trouble connecting right now. Please try again in a moment.',
+          sender: 'ai',
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, errorMessage]);
+      } finally {
+        setIsLoading(false);
       }
-
-      const data = await response.json();
-
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: data.aiMessage?.content || data.response || 'Sorry, I could not process your request.',
-        sender: 'ai',
-        timestamp: new Date(),
-        conversationId: data.conversation?.id
-      };
-
-      setMessages(prev => [...prev, aiMessage]);
-    } catch (error) {
-      console.error('Error sending message:', error);
-      toast.error('Failed to send message. Please try again.');
-      
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: 'Sorry, I\'m having trouble connecting right now. Please try again in a moment.',
-        sender: 'ai',
-        timestamp: new Date()
-      };
-      
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -175,7 +242,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
           <div>
             <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white">ChainMind AI</h2>
             <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
-              {isConnected ? 'Connected' : 'Not connected'} • <span className="hidden sm:inline">AI-Powered DeFi Assistant</span><span className="sm:hidden">AI Assistant</span>
+              <span className="flex items-center">
+                <span className={`w-2 h-2 rounded-full mr-2 ${wsConnected ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                {wsConnected ? 'Live' : 'Offline'} • <span className="hidden sm:inline ml-1">AI-Powered DeFi Assistant</span><span className="sm:hidden ml-1">AI Assistant</span>
+              </span>
             </p>
           </div>
         </div>
@@ -231,29 +301,29 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ className = '' }) => {
               </div>
             </motion.div>
           ))}
-        </AnimatePresence>
-
-        {/* Loading Indicator */}
-        {isLoading && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex justify-start"
-          >
-            <div className="flex items-start space-x-2">
-              <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
-                <Bot className="w-4 h-4 text-white" />
-              </div>
-              <div className="bg-gray-100 dark:bg-gray-800 px-4 py-2 rounded-2xl rounded-bl-md">
-                <div className="flex items-center space-x-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
-                  <span className="text-sm text-gray-500 dark:text-gray-400">ChainMind is thinking...</span>
+        
+          {/* AI Typing Indicator */}
+          {isAiTyping && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="flex justify-start"
+            >
+              <div className="flex items-start space-x-2">
+                <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                  <Bot className="w-4 h-4 text-white" />
+                </div>
+                <div className="bg-gray-100 dark:bg-gray-800 px-4 py-2 rounded-2xl rounded-bl-md">
+                  <div className="flex items-center space-x-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+                    <span className="text-sm text-gray-500 dark:text-gray-400">ChainMind is thinking...</span>
+                  </div>
                 </div>
               </div>
-            </div>
-          </motion.div>
-        )}
-
+            </motion.div>
+          )}
+        </AnimatePresence>
         <div ref={messagesEndRef} />
       </div>
 

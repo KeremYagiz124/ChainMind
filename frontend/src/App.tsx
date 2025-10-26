@@ -14,6 +14,7 @@ import Analytics from './pages/Analytics';
 import Security from './pages/Security';
 import Settings from './pages/Settings';
 import History from './pages/History';
+import DeFi from './pages/DeFi';
 
 const queryClient = new QueryClient();
 
@@ -53,6 +54,7 @@ function App() {
                     <Route path="/portfolio" element={<Portfolio />} />
                     <Route path="/analytics" element={<Analytics />} />
                     <Route path="/security" element={<Security />} />
+                    <Route path="/defi" element={<DeFi />} />
                     <Route path="/history" element={<History />} />
                     <Route path="/settings" element={<Settings />} />
                   </Routes>

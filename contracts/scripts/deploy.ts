@@ -5,21 +5,24 @@ async function main() {
   const [deployer] = await ethers.getSigners();
 
   console.log("Deploying contracts with the account:", deployer.address);
-  console.log("Account balance:", (await deployer.getBalance()).toString());
+  const balance = await ethers.provider.getBalance(deployer.address);
+  console.log("Account balance:", ethers.formatEther(balance), "ETH");
 
   // Deploy ChainMindToken
   console.log("\nDeploying ChainMindToken...");
   const ChainMindTokenFactory = await ethers.getContractFactory("ChainMindToken");
   const token = await ChainMindTokenFactory.deploy();
-  await token.deployed();
-  console.log("ChainMindToken deployed to:", token.address);
+  await token.waitForDeployment();
+  const tokenAddress = await token.getAddress();
+  console.log("ChainMindToken deployed to:", tokenAddress);
 
   // Deploy ChainMindRegistry
   console.log("\nDeploying ChainMindRegistry...");
   const ChainMindRegistryFactory = await ethers.getContractFactory("ChainMindRegistry");
   const registry = await ChainMindRegistryFactory.deploy();
-  await registry.deployed();
-  console.log("ChainMindRegistry deployed to:", registry.address);
+  await registry.waitForDeployment();
+  const registryAddress = await registry.getAddress();
+  console.log("ChainMindRegistry deployed to:", registryAddress);
 
   // Verify deployment
   console.log("\nVerifying deployments...");
@@ -29,25 +32,29 @@ async function main() {
   const tokenSymbol = await token.symbol();
   const tokenSupply = await token.totalSupply();
   console.log(`Token: ${tokenName} (${tokenSymbol})`);
-  console.log(`Initial Supply: ${ethers.utils.formatEther(tokenSupply)} MIND`);
+  console.log(`Initial Supply: ${ethers.formatEther(tokenSupply)} MIND`);
 
   // Check registry
   const [agentCount, protocolCount, assessmentCount] = await registry.getTotalCounts();
   console.log(`Registry initialized with ${agentCount} agents, ${protocolCount} protocols, ${assessmentCount} assessments`);
 
   // Save deployment addresses
+  const network = await ethers.provider.getNetwork();
   const deploymentInfo = {
-    network: await ethers.provider.getNetwork(),
+    network: {
+      name: network.name,
+      chainId: network.chainId.toString()
+    },
     deployer: deployer.address,
     contracts: {
       ChainMindToken: {
-        address: token.address,
+        address: tokenAddress,
         name: tokenName,
         symbol: tokenSymbol,
-        initialSupply: ethers.utils.formatEther(tokenSupply)
+        initialSupply: ethers.formatEther(tokenSupply)
       },
       ChainMindRegistry: {
-        address: registry.address,
+        address: registryAddress,
         agentCount: agentCount.toString(),
         protocolCount: protocolCount.toString(),
         assessmentCount: assessmentCount.toString()

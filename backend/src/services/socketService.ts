@@ -172,6 +172,22 @@ export class SocketService {
     }
 
     // Build chat context
+    // Load user preferences from database if available
+    let userPreferences = {};
+    if (this.db && socket.data.userAddress) {
+      try {
+        const user = await this.db.user.findUnique({
+          where: { address: socket.data.userAddress },
+          select: { preferences: true }
+        });
+        if (user?.preferences) {
+          userPreferences = user.preferences as any;
+        }
+      } catch (error) {
+        // Database not available or user not found - use defaults
+      }
+    }
+
     const context: ChatContext = {
       userAddress: socket.data.userAddress || undefined,
       conversationHistory: (conversation as any).messages?.reverse().map((msg: any) => ({
@@ -179,8 +195,8 @@ export class SocketService {
         content: msg.content,
         timestamp: msg.createdAt
       })) || [],
-      userPreferences: {}
-    }; // TODO: Load user preferences
+      userPreferences
+    };
 
     // Store user message
     const userMessage = await this.db.message.create({

@@ -5,6 +5,13 @@ let prisma: PrismaClient;
 
 export const initializeDatabase = async (): Promise<void> => {
   try {
+    // Check if DATABASE_URL is configured
+    if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('username:password')) {
+      logger.warn('⚠️  DATABASE_URL not configured. Running in stateless mode (no persistence).');
+      logger.warn('⚠️  To enable database features, configure DATABASE_URL in .env file.');
+      return;
+    }
+
     prisma = new PrismaClient({
       log: [
         {
@@ -28,19 +35,25 @@ export const initializeDatabase = async (): Promise<void> => {
 
     // Log database queries in development
     if (process.env.NODE_ENV === 'development') {
-      prisma.$on('query', (e) => {
+      (prisma as any).$on('query', (e: any) => {
         logger.debug(`Query: ${e.query}`);
         logger.debug(`Params: ${e.params}`);
         logger.debug(`Duration: ${e.duration}ms`);
       });
     }
 
-    prisma.$on('error', (e) => {
+    (prisma as any).$on('error', (e: any) => {
       logger.error('Database error:', e);
     });
 
-    // Test database connection
-    await prisma.$connect();
+    // Test database connection with timeout
+    await Promise.race([
+      prisma.$connect(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Database connection timeout')), 5000)
+      )
+    ]);
+    
     logger.info('✅ Database connected successfully');
 
     // Run migrations in production
@@ -52,15 +65,21 @@ export const initializeDatabase = async (): Promise<void> => {
 
   } catch (error) {
     logger.error('❌ Database connection failed:', error);
-    throw error;
+    logger.warn('⚠️  Continuing without database (stateless mode). Some features may be limited.');
+    prisma = null as any; // Set to null to indicate no connection
   }
 };
 
-export const getDatabase = (): PrismaClient => {
+export const getDatabase = (): PrismaClient | null => {
   if (!prisma) {
-    throw new Error('Database not initialized. Call initializeDatabase() first.');
+    logger.warn('Database not initialized. Returning null. Call initializeDatabase() first.');
+    return null;
   }
   return prisma;
+};
+
+export const isDatabaseConnected = (): boolean => {
+  return prisma !== null && prisma !== undefined;
 };
 
 export const closeDatabase = async (): Promise<void> => {

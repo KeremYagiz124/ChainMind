@@ -61,94 +61,121 @@ export interface EnvioProtocolInteraction {
 }
 
 export class EnvioService {
-  private readonly ENVIO_API_URL = process.env.ENVIO_API_URL || 'https://api.envio.dev';
-  private readonly API_KEY = process.env.ENVIO_API_KEY;
-
-  // Supported chain configurations
-  private readonly CHAINS = {
-    ethereum: { id: 1, name: 'ethereum' },
-    polygon: { id: 137, name: 'polygon' },
-    arbitrum: { id: 42161, name: 'arbitrum' },
-    optimism: { id: 10, name: 'optimism' },
-    base: { id: 8453, name: 'base' }
+  private readonly ENVIO_API_URL = process.env.ENVIO_API_URL || 'https://indexer.envio.dev/graphql';
+  private readonly ENVIO_API_KEY = process.env.ENVIO_API_KEY;
+  
+  private readonly CHAIN_NAMES: { [key: number]: string } = {
+    1: 'ethereum',
+    137: 'polygon',
+    42161: 'arbitrum',
+    10: 'optimism',
+    8453: 'base'
   };
 
-  // Known DeFi protocol addresses
-  private readonly PROTOCOLS = {
-    ethereum: {
-      uniswap_v3: '0x1F98431c8aD98523631AE4a59f267346ea31F984',
-      aave_v3: '0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2',
-      compound_v3: '0xc3d688B66703497DAA19211EEdff47f25384cdc3',
-      curve: '0x90E00ACe148ca3b23Ac1bC8C240C2a7Dd9c2d7f5',
-      sushiswap: '0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F'
-    },
-    polygon: {
-      uniswap_v3: '0x1F98431c8aD98523631AE4a59f267346ea31F984',
-      aave_v3: '0x794a61358D6845594F94dc1DB02A252b5b4814aD',
-      curve: '0x445FE580eF8d70FF569aB36e80c647af338db351'
-    }
-  };
-
-  async getTransactionHistory(
-    address: string, 
-    chainId: number = 1, 
-    limit: number = 50,
-    offset: number = 0
+  async getUserTransactions(
+    address: string,
+    chainId: number = 1,
+    limit: number = 50
   ): Promise<EnvioTransaction[]> {
-    const cacheKey = `envio_txs:${address}:${chainId}:${limit}:${offset}`;
+    const cacheKey = `envio_txs:${address}:${chainId}:${limit}`;
     const cached = await cacheGet(cacheKey);
     
     if (cached) {
-      logger.debug('Returning cached transaction history');
+      logger.debug('Returning cached Envio transactions');
       return cached;
     }
 
+    if (!this.ENVIO_API_KEY) {
+      logger.warn('Envio API key not configured');
+      return [];
+    }
+
     try {
-      const response = await this.makeEnvioRequest('/graphql', {
-        query: `
-          query GetTransactions($address: String!, $chainId: Int!, $limit: Int!, $offset: Int!) {
-            transactions(
-              where: {
-                or: [
-                  { from: { _eq: $address } },
-                  { to: { _eq: $address } }
-                ],
-                chainId: { _eq: $chainId }
-              },
-              limit: $limit,
-              offset: $offset,
-              order_by: { timestamp: desc }
-            ) {
-              hash
-              from
-              to
-              value
-              gasUsed
-              gasPrice
-              timestamp
-              blockNumber
-              status
-              methodId
-              contractAddress
+      const chainName = this.CHAIN_NAMES[chainId] || 'ethereum';
+      const query = `
+        query GetUserTransactions($address: String!, $chainId: Int!, $limit: Int!) {
+          transactions(
+            where: {
+              or: [
+                { from: { _ilike: $address } }
+                { to: { _ilike: $address } }
+              ]
+              chainId: { _eq: $chainId }
             }
+            limit: $limit
+            order_by: { timestamp: desc }
+          ) {
+            hash
+            from
+            to
+            value
+            gasUsed
+            gasPrice
+            timestamp
+            blockNumber
+            chainId
+            status
+            input
+            contractAddress
           }
-        `,
-        variables: { address, chainId, limit, offset }
-      });
+        }
+      `;
 
-      const transactions: EnvioTransaction[] = response.data.transactions.map((tx: any) => ({
-        ...tx,
-        chainId,
+      logger.debug(`Fetching transactions from Envio for ${address} on chain ${chainId}`);
+      
+      const response = await axios.post(
+        this.ENVIO_API_URL,
+        {
+          query,
+          variables: { 
+            address: address.toLowerCase(), 
+            chainId,
+            limit 
+          }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.ENVIO_API_KEY}`
+          },
+          timeout: parseInt(process.env.API_TIMEOUT || '30000')
+        }
+      );
+
+      if (response.data.errors) {
+        logger.error('Envio GraphQL errors:', response.data.errors);
+        return [];
+      }
+
+      const transactions: EnvioTransaction[] = (response.data.data?.transactions || []).map((tx: any) => ({
+        hash: tx.hash,
+        from: tx.from,
+        to: tx.to || '',
+        value: tx.value || '0',
+        gasUsed: tx.gasUsed || '0',
+        gasPrice: tx.gasPrice || '0',
         timestamp: parseInt(tx.timestamp),
-        blockNumber: parseInt(tx.blockNumber)
+        blockNumber: parseInt(tx.blockNumber),
+        chainId: tx.chainId || chainId,
+        status: tx.status || 'success',
+        methodId: tx.input?.slice(0, 10),
+        contractAddress: tx.contractAddress
       }));
-
-      // Cache for 2 minutes
-      await cacheSet(cacheKey, transactions, 120);
-
+      
+      logger.info(`✓ Fetched ${transactions.length} transactions from Envio`);
+      
+      // Cache for 5 minutes
+      await cacheSet(cacheKey, transactions, 300);
+      
       return transactions;
-    } catch (error) {
-      logger.error('Envio transaction history error:', error);
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        logger.error('Envio API authentication failed - check API key');
+      } else if (error.response?.status === 429) {
+        logger.error('Envio API rate limit exceeded');
+      } else {
+        logger.error('Envio API error:', error.message);
+      }
       return [];
     }
   }
@@ -166,48 +193,88 @@ export class EnvioService {
     }
 
     try {
-      const response = await this.makeEnvioRequest('/graphql', {
-        query: `
-          query GetTokenTransfers($address: String!, $chainId: Int!, $limit: Int!) {
-            tokenTransfers(
-              where: {
-                or: [
-                  { from: { _eq: $address } },
-                  { to: { _eq: $address } }
-                ],
-                chainId: { _eq: $chainId }
-              },
-              limit: $limit,
-              order_by: { timestamp: desc }
-            ) {
-              hash
-              from
-              to
-              tokenAddress
-              tokenSymbol
-              tokenName
-              value
-              decimals
-              timestamp
-              blockNumber
+      const chainName = this.CHAIN_NAMES[chainId] || 'ethereum';
+      const query = `
+        query GetTokenTransfers($address: String!, $chainId: Int!, $limit: Int!) {
+          tokenTransfers(
+            where: {
+              or: [
+                { from: { _ilike: $address } }
+                { to: { _ilike: $address } }
+              ]
+              chainId: { _eq: $chainId }
             }
+            limit: $limit
+            order_by: { timestamp: desc }
+          ) {
+            hash
+            from
+            to
+            tokenAddress
+            tokenSymbol
+            tokenName
+            value
+            decimals
+            timestamp
+            blockNumber
           }
-        `,
-        variables: { address, chainId, limit }
-      });
+        }
+      `;
 
-      const transfers: EnvioTokenTransfer[] = response.data.tokenTransfers.map((transfer: any) => ({
-        ...transfer,
-        chainId,
+      logger.debug(`Fetching token transfers from Envio for ${address} on chain ${chainId}`);
+      
+      const response = await axios.post(
+        this.ENVIO_API_URL,
+        {
+          query,
+          variables: { 
+            address: address.toLowerCase(), 
+            chainId,
+            limit 
+          }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.ENVIO_API_KEY}`
+          },
+          timeout: parseInt(process.env.API_TIMEOUT || '30000')
+        }
+      );
+
+      if (response.data.errors) {
+        logger.error('Envio GraphQL errors:', response.data.errors);
+        return [];
+      }
+
+      const transfers: EnvioTokenTransfer[] = (response.data.data?.tokenTransfers || []).map((transfer: any) => ({
+        hash: transfer.hash,
+        from: transfer.from,
+        to: transfer.to || '',
+        tokenAddress: transfer.tokenAddress,
+        tokenSymbol: transfer.tokenSymbol,
+        tokenName: transfer.tokenName,
+        value: transfer.value || '0',
+        decimals: parseInt(transfer.decimals),
         timestamp: parseInt(transfer.timestamp),
         blockNumber: parseInt(transfer.blockNumber),
-        decimals: parseInt(transfer.decimals)
+        chainId: transfer.chainId || chainId
       }));
-
-      await cacheSet(cacheKey, transfers, 120);
+      
+      logger.info(`✓ Fetched ${transfers.length} token transfers from Envio`);
+      
+      // Cache for 5 minutes
+      await cacheSet(cacheKey, transfers, 300);
+      
       return transfers;
-    } catch (error) {
-      logger.error('Envio token transfers error:', error);
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        logger.error('Envio API authentication failed - check API key');
+      } else if (error.response?.status === 429) {
+        logger.error('Envio API rate limit exceeded');
+      } else {
+        logger.error('Envio API error:', error.message);
+      }
       return [];
     }
   }
@@ -225,46 +292,86 @@ export class EnvioService {
     }
 
     try {
-      const response = await this.makeEnvioRequest('/graphql', {
-        query: `
-          query GetNFTTransfers($address: String!, $chainId: Int!, $limit: Int!) {
-            nftTransfers(
-              where: {
-                or: [
-                  { from: { _eq: $address } },
-                  { to: { _eq: $address } }
-                ],
-                chainId: { _eq: $chainId }
-              },
-              limit: $limit,
-              order_by: { timestamp: desc }
-            ) {
-              hash
-              from
-              to
-              contractAddress
-              tokenId
-              tokenName
-              collectionName
-              timestamp
-              blockNumber
+      const chainName = this.CHAIN_NAMES[chainId] || 'ethereum';
+      const query = `
+        query GetNFTTransfers($address: String!, $chainId: Int!, $limit: Int!) {
+          nftTransfers(
+            where: {
+              or: [
+                { from: { _ilike: $address } }
+                { to: { _ilike: $address } }
+              ]
+              chainId: { _eq: $chainId }
             }
+            limit: $limit
+            order_by: { timestamp: desc }
+          ) {
+            hash
+            from
+            to
+            contractAddress
+            tokenId
+            tokenName
+            collectionName
+            timestamp
+            blockNumber
           }
-        `,
-        variables: { address, chainId, limit }
-      });
+        }
+      `;
 
-      const transfers: EnvioNFTTransfer[] = response.data.nftTransfers.map((transfer: any) => ({
-        ...transfer,
-        chainId,
+      logger.debug(`Fetching NFT transfers from Envio for ${address} on chain ${chainId}`);
+      
+      const response = await axios.post(
+        this.ENVIO_API_URL,
+        {
+          query,
+          variables: { 
+            address: address.toLowerCase(), 
+            chainId,
+            limit 
+          }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.ENVIO_API_KEY}`
+          },
+          timeout: parseInt(process.env.API_TIMEOUT || '30000')
+        }
+      );
+
+      if (response.data.errors) {
+        logger.error('Envio GraphQL errors:', response.data.errors);
+        return [];
+      }
+
+      const transfers: EnvioNFTTransfer[] = (response.data.data?.nftTransfers || []).map((transfer: any) => ({
+        hash: transfer.hash,
+        from: transfer.from,
+        to: transfer.to || '',
+        contractAddress: transfer.contractAddress,
+        tokenId: transfer.tokenId,
+        tokenName: transfer.tokenName,
+        collectionName: transfer.collectionName,
         timestamp: parseInt(transfer.timestamp),
-        blockNumber: parseInt(transfer.blockNumber)
+        blockNumber: parseInt(transfer.blockNumber),
+        chainId: transfer.chainId || chainId
       }));
-
+      
+      logger.info(`✓ Fetched ${transfers.length} NFT transfers from Envio`);
+      
+      // Cache for 5 minutes
       await cacheSet(cacheKey, transfers, 300);
+      
       return transfers;
-    } catch (error) {
-      logger.error('Envio NFT transfers error:', error);
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        logger.error('Envio API authentication failed - check API key');
+      } else if (error.response?.status === 429) {
+        logger.error('Envio API rate limit exceeded');
+      } else {
+        logger.error('Envio API error:', error.message);
+      }
       return [];
     }
   }
@@ -282,55 +389,81 @@ export class EnvioService {
     }
 
     try {
-      const chainName = this.getChainName(chainId);
-      const protocolAddresses = this.PROTOCOLS[chainName as keyof typeof this.PROTOCOLS] || {};
+      const chainName = this.CHAIN_NAMES[chainId] || 'ethereum';
+      const query = `
+        query GetDeFiInteractions($address: String!, $chainId: Int!, $limit: Int!) {
+          protocolInteractions(
+            where: {
+              userAddress: { _ilike: $address }
+              chainId: { _eq: $chainId }
+            }
+            limit: $limit
+            order_by: { timestamp: desc }
+          ) {
+            hash
+            userAddress
+            protocolAddress
+            protocolName
+            action
+            tokens
+            timestamp
+            blockNumber
+          }
+        }
+      `;
+
+      logger.debug(`Fetching DeFi interactions from Envio for ${address} on chain ${chainId}`);
       
-      if (Object.keys(protocolAddresses).length === 0) {
+      const response = await axios.post(
+        this.ENVIO_API_URL,
+        {
+          query,
+          variables: { 
+            address: address.toLowerCase(), 
+            chainId,
+            limit 
+          }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.ENVIO_API_KEY}`
+          },
+          timeout: parseInt(process.env.API_TIMEOUT || '30000')
+        }
+      );
+
+      if (response.data.errors) {
+        logger.error('Envio GraphQL errors:', response.data.errors);
         return [];
       }
 
-      const response = await this.makeEnvioRequest('/graphql', {
-        query: `
-          query GetDeFiInteractions($address: String!, $chainId: Int!, $protocols: [String!]!, $limit: Int!) {
-            protocolInteractions(
-              where: {
-                userAddress: { _eq: $address },
-                protocolAddress: { _in: $protocols },
-                chainId: { _eq: $chainId }
-              },
-              limit: $limit,
-              order_by: { timestamp: desc }
-            ) {
-              hash
-              userAddress
-              protocolAddress
-              protocolName
-              action
-              tokens
-              timestamp
-              blockNumber
-            }
-          }
-        `,
-        variables: { 
-          address, 
-          chainId, 
-          protocols: Object.values(protocolAddresses),
-          limit 
-        }
-      });
-
-      const interactions: EnvioProtocolInteraction[] = response.data.protocolInteractions.map((interaction: any) => ({
-        ...interaction,
-        chainId,
+      const interactions: EnvioProtocolInteraction[] = (response.data.data?.protocolInteractions || []).map((interaction: any) => ({
+        hash: interaction.hash,
+        userAddress: interaction.userAddress,
+        protocolAddress: interaction.protocolAddress,
+        protocolName: interaction.protocolName,
+        action: interaction.action,
+        tokens: interaction.tokens,
         timestamp: parseInt(interaction.timestamp),
-        blockNumber: parseInt(interaction.blockNumber)
+        blockNumber: parseInt(interaction.blockNumber),
+        chainId: interaction.chainId || chainId
       }));
-
-      await cacheSet(cacheKey, interactions, 180);
+      
+      logger.info(`✓ Fetched ${interactions.length} DeFi interactions from Envio`);
+      
+      // Cache for 5 minutes
+      await cacheSet(cacheKey, interactions, 300);
+      
       return interactions;
-    } catch (error) {
-      logger.error('Envio DeFi interactions error:', error);
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        logger.error('Envio API authentication failed - check API key');
+      } else if (error.response?.status === 429) {
+        logger.error('Envio API rate limit exceeded');
+      } else {
+        logger.error('Envio API error:', error.message);
+      }
       return [];
     }
   }
@@ -353,7 +486,7 @@ export class EnvioService {
 
     try {
       const results = await Promise.allSettled([
-        ...chains.map(chainId => this.getTransactionHistory(address, chainId, 20)),
+        ...chains.map(chainId => this.getUserTransactions(address, chainId, 20)),
         ...chains.map(chainId => this.getTokenTransfers(address, chainId, 20)),
         ...chains.map(chainId => this.getNFTTransfers(address, chainId, 10)),
         ...chains.map(chainId => this.getDeFiInteractions(address, chainId, 15))
@@ -364,26 +497,35 @@ export class EnvioService {
       const nftTransfers: EnvioNFTTransfer[] = [];
       const defiInteractions: EnvioProtocolInteraction[] = [];
 
-      // Process results
-      for (let i = 0; i < chains.length; i++) {
-        const txResult = results[i];
-        const tokenResult = results[i + chains.length];
-        const nftResult = results[i + 2 * chains.length];
-        const defiResult = results[i + 3 * chains.length];
+      // Process results - separate by type
+      const txResults = results.slice(0, chains.length);
+      const tokenResults = results.slice(chains.length, chains.length * 2);
+      const nftResults = results.slice(chains.length * 2, chains.length * 3);
+      const defiResults = results.slice(chains.length * 3);
 
-        if (txResult.status === 'fulfilled') {
-          transactions.push(...txResult.value);
+      txResults.forEach((result) => {
+        if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+          transactions.push(...(result.value as EnvioTransaction[]));
         }
-        if (tokenResult.status === 'fulfilled') {
-          tokenTransfers.push(...tokenResult.value);
+      });
+
+      tokenResults.forEach((result) => {
+        if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+          tokenTransfers.push(...(result.value as EnvioTokenTransfer[]));
         }
-        if (nftResult.status === 'fulfilled') {
-          nftTransfers.push(...nftResult.value);
+      });
+
+      nftResults.forEach((result) => {
+        if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+          nftTransfers.push(...(result.value as EnvioNFTTransfer[]));
         }
-        if (defiResult.status === 'fulfilled') {
-          defiInteractions.push(...defiResult.value);
+      });
+
+      defiResults.forEach((result) => {
+        if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+          defiInteractions.push(...(result.value as EnvioProtocolInteraction[]));
         }
-      }
+      });
 
       // Sort by timestamp
       transactions.sort((a, b) => b.timestamp - a.timestamp);
@@ -425,26 +567,54 @@ export class EnvioService {
     }
 
     try {
-      const response = await this.makeEnvioRequest('/graphql', {
-        query: `
-          query GetProtocolStats($protocolAddress: String!, $chainId: Int!) {
-            protocolStats(
-              where: {
-                protocolAddress: { _eq: $protocolAddress },
-                chainId: { _eq: $chainId }
-              }
-            ) {
-              totalUsers
-              totalVolume
-              totalTransactions
-              activeUsers24h
+      const chainName = this.CHAIN_NAMES[chainId] || 'ethereum';
+      const query = `
+        query GetProtocolStats($protocolAddress: String!, $chainId: Int!) {
+          protocolStats(
+            where: {
+              protocolAddress: { _eq: $protocolAddress }
+              chainId: { _eq: $chainId }
             }
+          ) {
+            totalUsers
+            totalVolume
+            totalTransactions
+            activeUsers24h
           }
-        `,
-        variables: { protocolAddress, chainId }
-      });
+        }
+      `;
 
-      const stats = response.data.protocolStats[0] || {
+      logger.debug(`Fetching protocol stats from Envio for ${protocolAddress} on chain ${chainId}`);
+      
+      const response = await axios.post(
+        this.ENVIO_API_URL,
+        {
+          query,
+          variables: { 
+            protocolAddress: protocolAddress.toLowerCase(), 
+            chainId
+          }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.ENVIO_API_KEY}`
+          },
+          timeout: parseInt(process.env.API_TIMEOUT || '30000')
+        }
+      );
+
+      if (response.data.errors) {
+        logger.error('Envio GraphQL errors:', response.data.errors);
+        return {
+          totalUsers: 0,
+          totalVolume: '0',
+          totalTransactions: 0,
+          activeUsers24h: 0
+        };
+      }
+
+      const stats = response.data.data?.protocolStats[0] || {
         totalUsers: 0,
         totalVolume: '0',
         totalTransactions: 0,
@@ -469,8 +639,8 @@ export class EnvioService {
       'Content-Type': 'application/json'
     };
 
-    if (this.API_KEY) {
-      headers['Authorization'] = `Bearer ${this.API_KEY}`;
+    if (this.ENVIO_API_KEY) {
+      headers['Authorization'] = `Bearer ${this.ENVIO_API_KEY}`;
     }
 
     const response = await axios.post(`${this.ENVIO_API_URL}${endpoint}`, data, {
@@ -485,17 +655,14 @@ export class EnvioService {
     return response.data;
   }
 
-  private getChainName(chainId: number): string {
-    const chain = Object.entries(this.CHAINS).find(([_, config]) => config.id === chainId);
-    return chain ? chain[0] : 'ethereum';
-  }
-
   getSupportedChains(): Array<{ id: number; name: string }> {
-    return Object.values(this.CHAINS);
+    return Object.entries(this.CHAIN_NAMES).map(([id, name]) => ({
+      id: parseInt(id),
+      name
+    }));
   }
 
-  getKnownProtocols(chainId: number = 1): Record<string, string> {
-    const chainName = this.getChainName(chainId);
-    return this.PROTOCOLS[chainName as keyof typeof this.PROTOCOLS] || {};
+  getChainName(chainId: number): string {
+    return this.CHAIN_NAMES[chainId] || 'ethereum';
   }
 }

@@ -19,7 +19,7 @@ describe("ChainMindToken", function () {
     [owner, addr1, addr2, addr3] = await ethers.getSigners();
     
     const ChainMindTokenFactory = await ethers.getContractFactory("ChainMindToken");
-    token = await ChainMindTokenFactory.deploy(INITIAL_SUPPLY);
+    token = await ChainMindTokenFactory.deploy(); // Constructor has no parameters
     await token.waitForDeployment();
   });
 

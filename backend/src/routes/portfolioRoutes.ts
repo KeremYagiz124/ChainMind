@@ -1,10 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { PortfolioService } from '../services/portfolioService';
+import { getDatabase, isDatabaseConnected } from '../config/database';
 import { logger } from '../utils/logger';
 import { asyncHandler } from '../middleware/errorMiddleware';
 
 const router = Router();
 const portfolioService = new PortfolioService();
+
+// Database is optional - routes will handle null database gracefully
+const db = getDatabase();
 
 // GET /api/portfolio/:address - Get portfolio data
 router.get('/:address', asyncHandler(async (req: Request, res: Response) => {

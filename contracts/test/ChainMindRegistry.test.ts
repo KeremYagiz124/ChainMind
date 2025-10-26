@@ -23,69 +23,69 @@ describe("ChainMindRegistry", function () {
     });
 
     it("Should initialize with zero counters", async function () {
-      // Verify no AI agents exist initially
-      const agentCount = await chainMindRegistry.getActiveAgentsCount();
-      expect(agentCount).to.equal(0);
+      // Contract initialized successfully
+      const [totalAgents, totalProtocols, totalAssessments] = await chainMindRegistry.getTotalCounts();
+      expect(totalAgents).to.equal(0);
     });
   });
 
   describe("AI Agent Registration", function () {
     it("Should register a new AI agent", async function () {
-      const tx = await chainMindRegistry.registerAIAgent(
+      const tx = await chainMindRegistry.registerAgent(
         "GPT-4 Agent",
         "Advanced AI agent for DeFi analysis",
         "QmHash123456789"
       );
       
       await expect(tx)
-        .to.emit(chainMindRegistry, "AIAgentRegistered")
-        .withArgs(1, addr1.address, "GPT-4 Agent");
+        .to.emit(chainMindRegistry, "AgentRegistered")
+        .withArgs(1, owner.address, "GPT-4 Agent");
     });
 
     it("Should fail if name is empty", async function () {
       await expect(
-        chainMindRegistry.registerAIAgent("", "Description", "QmHash")
-      ).to.be.revertedWith("Name required");
+        chainMindRegistry.registerAgent("", "Description", "QmHash")
+      ).to.be.revertedWith("Name cannot be empty");
     });
 
     it("Should track agent reputation", async function () {
-      await chainMindRegistry.registerAIAgent(
+      await chainMindRegistry.registerAgent(
         "GPT-4 Agent",
         "Advanced AI agent",
         "QmHash123"
       );
       
-      const agent = await chainMindRegistry.getAIAgent(1);
-      expect(agent.reputation).to.equal(0);
+      const agent = await chainMindRegistry.agents(1);
+      expect(agent.reputation).to.equal(100); // Starting reputation
     });
 
     it("Should allow agent owner to update agent", async function () {
-      await chainMindRegistry.connect(addr1).registerAIAgent(
+      await chainMindRegistry.connect(addr1).registerAgent(
         "GPT-4 Agent",
         "Description",
         "QmHash"
       );
       
-      await chainMindRegistry.connect(addr1).updateAIAgent(
+      await chainMindRegistry.connect(addr1).updateAgent(
         1,
         "GPT-4 Plus",
         "Updated description",
         "QmHashNew"
       );
       
-      const agent = await chainMindRegistry.getAIAgent(1);
+      const agent = await chainMindRegistry.getAgent(1);
       expect(agent.name).to.equal("GPT-4 Plus");
     });
 
     it("Should not allow non-owner to update agent", async function () {
-      await chainMindRegistry.connect(addr1).registerAIAgent(
+      await chainMindRegistry.connect(addr1).registerAgent(
         "GPT-4 Agent",
         "Description",
         "QmHash"
       );
       
       await expect(
-        chainMindRegistry.connect(addr2).updateAIAgent(
+        chainMindRegistry.connect(addr2).updateAgent(
           1,
           "GPT-4 Plus",
           "Updated description",
@@ -102,8 +102,7 @@ describe("ChainMindRegistry", function () {
       const tx = await chainMindRegistry.registerProtocol(
         protocolAddress,
         "Uniswap V3",
-        "Leading DEX protocol",
-        30 // Risk score
+        "Leading DEX protocol"
       );
       
       await expect(tx)
@@ -116,32 +115,29 @@ describe("ChainMindRegistry", function () {
         chainMindRegistry.registerProtocol(
           ethers.ZeroAddress,
           "Protocol",
-          "Description",
-          50
+          "Description"
         )
-      ).to.be.revertedWith("Invalid address");
+      ).to.be.revertedWith("Invalid contract address");
     });
 
-    it("Should fail if risk score exceeds 100", async function () {
+    it("Should fail if name is empty", async function () {
       await expect(
         chainMindRegistry.registerProtocol(
           addr1.address,
-          "Protocol",
-          "Description",
-          101
+          "",
+          "Description"
         )
-      ).to.be.revertedWith("Invalid risk score");
+      ).to.be.revertedWith("Name cannot be empty");
     });
 
     it("Should allow owner to verify protocol", async function () {
       await chainMindRegistry.registerProtocol(
         addr1.address,
         "Uniswap V3",
-        "Leading DEX protocol",
-        30
+        "Leading DEX protocol"
       );
       
-      await chainMindRegistry.verifyProtocol(1);
+      await chainMindRegistry.verifyProtocol(1, true);
       
       const protocol = await chainMindRegistry.getProtocol(1);
       expect(protocol.isVerified).to.be.true;
@@ -154,58 +150,57 @@ describe("ChainMindRegistry", function () {
       await chainMindRegistry.registerProtocol(
         addr1.address,
         "Uniswap V3",
-        "Leading DEX protocol",
-        30
+        "Leading DEX protocol"
       );
     });
 
     it("Should submit a security assessment", async function () {
-      const tx = await chainMindRegistry.submitSecurityAssessment(
+      const tx = await chainMindRegistry.submitAssessment(
         1, // protocolId
         25, // riskScore
         "QmSecurityReport123"
       );
       
       await expect(tx)
-        .to.emit(chainMindRegistry, "SecurityAssessmentSubmitted")
-        .withArgs(1, 1, owner.address, 25);
+        .to.emit(chainMindRegistry, "AssessmentSubmitted")
+        .withArgs(1, 1, owner.address);
     });
 
     it("Should fail if protocol doesn't exist", async function () {
       await expect(
-        chainMindRegistry.submitSecurityAssessment(
+        chainMindRegistry.submitAssessment(
           999, // Non-existent protocol
           25,
           "QmReport"
         )
-      ).to.be.revertedWith("Protocol not found");
+      ).to.be.revertedWith("Invalid protocol ID");
     });
 
     it("Should fail if risk score exceeds 100", async function () {
       await expect(
-        chainMindRegistry.submitSecurityAssessment(
+        chainMindRegistry.submitAssessment(
           1,
           101,
           "QmReport"
         )
-      ).to.be.revertedWith("Invalid risk score");
+      ).to.be.revertedWith("Risk score must be 0-100");
     });
 
     it("Should allow owner to verify assessment", async function () {
-      await chainMindRegistry.submitSecurityAssessment(
+      await chainMindRegistry.submitAssessment(
         1,
         25,
         "QmReport"
       );
       
-      await chainMindRegistry.verifySecurityAssessment(1);
+      await chainMindRegistry.verifyAssessment(1, true);
       
-      const assessment = await chainMindRegistry.getSecurityAssessment(1);
+      const assessment = await chainMindRegistry.getAssessment(1);
       expect(assessment.isVerified).to.be.true;
     });
 
     it("Should update protocol audit count", async function () {
-      await chainMindRegistry.submitSecurityAssessment(
+      await chainMindRegistry.submitAssessment(
         1,
         25,
         "QmReport"
@@ -218,68 +213,56 @@ describe("ChainMindRegistry", function () {
 
   describe("Reputation System", function () {
     beforeEach(async function () {
-      await chainMindRegistry.connect(addr1).registerAIAgent(
+      await chainMindRegistry.connect(addr1).registerAgent(
         "GPT-4 Agent",
         "AI agent",
         "QmHash"
       );
     });
 
-    it("Should increase agent reputation", async function () {
-      await chainMindRegistry.increaseReputation(1, 10);
+    it("Should update agent reputation", async function () {
+      await chainMindRegistry.updateReputation(1, 200);
       
-      const agent = await chainMindRegistry.getAIAgent(1);
-      expect(agent.reputation).to.equal(10);
-    });
-
-    it("Should decrease agent reputation", async function () {
-      await chainMindRegistry.increaseReputation(1, 20);
-      await chainMindRegistry.decreaseReputation(1, 5);
-      
-      const agent = await chainMindRegistry.getAIAgent(1);
-      expect(agent.reputation).to.equal(15);
+      const agent = await chainMindRegistry.getAgent(1);
+      expect(agent.reputation).to.equal(200);
     });
 
     it("Should not allow non-owner to modify reputation", async function () {
       await expect(
-        chainMindRegistry.connect(addr1).increaseReputation(1, 10)
-      ).to.be.revertedWithCustomError(chainMindRegistry, "OwnableUnauthorizedAccount");
+        chainMindRegistry.connect(addr2).updateReputation(1, 200)
+      ).to.be.reverted; // Reverted by onlyOwner modifier
     });
   });
 
   describe("Query Functions", function () {
     beforeEach(async function () {
       // Register multiple agents
-      await chainMindRegistry.registerAIAgent("Agent 1", "Desc 1", "Hash1");
-      await chainMindRegistry.registerAIAgent("Agent 2", "Desc 2", "Hash2");
-      await chainMindRegistry.registerAIAgent("Agent 3", "Desc 3", "Hash3");
+      await chainMindRegistry.registerAgent("Agent 1", "Desc 1", "Hash1");
+      await chainMindRegistry.registerAgent("Agent 2", "Desc 2", "Hash2");
+      await chainMindRegistry.registerAgent("Agent 3", "Desc 3", "Hash3");
       
       // Register multiple protocols
-      await chainMindRegistry.registerProtocol(addr1.address, "Protocol 1", "Desc", 30);
-      await chainMindRegistry.registerProtocol(addr2.address, "Protocol 2", "Desc", 50);
+      await chainMindRegistry.registerProtocol(addr1.address, "Protocol 1", "Desc");
+      await chainMindRegistry.registerProtocol(addr2.address, "Protocol 2", "Desc");
     });
 
-    it("Should return correct active agents count", async function () {
-      const count = await chainMindRegistry.getActiveAgentsCount();
-      expect(count).to.equal(3);
+    it("Should return correct total counts", async function () {
+      const [agentCount, protocolCount, assessmentCount] = await chainMindRegistry.getTotalCounts();
+      expect(agentCount).to.equal(3);
+      expect(protocolCount).to.equal(2);
+      expect(assessmentCount).to.equal(0);
     });
 
-    it("Should return correct protocols count", async function () {
-      const count = await chainMindRegistry.getProtocolsCount();
-      expect(count).to.equal(2);
-    });
-
-    it("Should return agent by owner address", async function () {
-      const agents = await chainMindRegistry.getAgentsByOwner(owner.address);
+    it("Should return user agents", async function () {
+      const agents = await chainMindRegistry.getUserAgents(owner.address);
       expect(agents.length).to.equal(3);
     });
 
-    it("Should return verified protocols only", async function () {
-      await chainMindRegistry.verifyProtocol(1);
+    it("Should verify protocol correctly", async function () {
+      await chainMindRegistry.verifyProtocol(1, true);
       
-      const verified = await chainMindRegistry.getVerifiedProtocols();
-      expect(verified.length).to.equal(1);
-      expect(verified[0].name).to.equal("Protocol 1");
+      const protocol = await chainMindRegistry.getProtocol(1);
+      expect(protocol.isVerified).to.be.true;
     });
   });
 });

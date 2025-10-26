@@ -178,15 +178,15 @@ model Alert {
 
 model MarketData {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  symbol    String
+  symbol    String   @unique
   price     String   // Store as string to avoid Decimal issues in MongoDB
   change24h String?  // Store as string to avoid Decimal issues in MongoDB
   volume24h String?  // Store as string to avoid Decimal issues in MongoDB
   marketCap String?  // Store as string to avoid Decimal issues in MongoDB
   source    String   // Data source
   timestamp DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@unique([symbol, source, timestamp])
   @@map("market_data")
 }
 

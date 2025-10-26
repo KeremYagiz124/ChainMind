@@ -4,29 +4,28 @@
 
 import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
-import { createClient } from 'redis';
-import { config } from '../config/env';
+import { getRedisClient } from '../config/redis';
+import { logger } from '../utils/logger';
 
-// Create Redis client if caching is enabled
-let redisClient: ReturnType<typeof createClient> | undefined;
+const redisClient = getRedisClient();
+const ENABLE_RATE_LIMITING = process.env.ENABLE_RATE_LIMITING !== 'false';
 
-if (config.features.caching && config.redis.url) {
-  redisClient = createClient({
-    url: config.redis.url,
-  });
-
-  redisClient.connect().catch((err) => {
-    console.error('Redis connection failed:', err);
-  });
-}
-
-// General API rate limiter
+// General API rate limiter - 100 requests per 15 minutes
 export const apiLimiter = rateLimit({
-  windowMs: config.security.rateLimit.windowMs,
-  max: config.security.rateLimit.maxRequests,
-  message: 'Too many requests from this IP, please try again later.',
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
+  message: { success: false, error: 'Too many requests from this IP, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => !ENABLE_RATE_LIMITING,
+  handler: (req, res) => {
+    logger.warn(`Rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({
+      success: false,
+      error: 'Too many requests from this IP, please try again later.',
+      retryAfter: res.getHeader('Retry-After')
+    });
+  },
   ...(redisClient && {
     store: new RedisStore({
       client: redisClient as any,
@@ -35,14 +34,23 @@ export const apiLimiter = rateLimit({
   }),
 });
 
-// Strict limiter for authentication endpoints
+// Strict limiter for authentication endpoints - 5 attempts per 15 minutes
 export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,
-  message: 'Too many authentication attempts, please try again later.',
+  windowMs: parseInt(process.env.RATE_LIMIT_AUTH_WINDOW || '900000'), // 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_AUTH_MAX || '5'),
+  message: { success: false, error: 'Too many authentication attempts, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  skip: () => !ENABLE_RATE_LIMITING,
+  handler: (req, res) => {
+    logger.warn(`Auth rate limit exceeded for IP: ${req.ip}, address: ${req.body?.address || 'unknown'}`);
+    res.status(429).json({
+      success: false,
+      error: 'Too many authentication attempts from this IP. Please try again later.',
+      retryAfter: res.getHeader('Retry-After')
+    });
+  },
   ...(redisClient && {
     store: new RedisStore({
       client: redisClient as any,
@@ -51,13 +59,22 @@ export const authLimiter = rateLimit({
   }),
 });
 
-// Limiter for AI chat endpoints
+// Limiter for AI chat endpoints - 10 requests per minute
 export const chatLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 10,
-  message: 'Too many chat requests, please slow down.',
+  message: { success: false, error: 'Too many chat requests, please slow down.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => !ENABLE_RATE_LIMITING,
+  handler: (req, res) => {
+    logger.warn(`Chat rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({
+      success: false,
+      error: 'Too many chat requests. Please wait a moment before sending another message.',
+      retryAfter: res.getHeader('Retry-After')
+    });
+  },
   ...(redisClient && {
     store: new RedisStore({
       client: redisClient as any,
@@ -66,17 +83,42 @@ export const chatLimiter = rateLimit({
   }),
 });
 
-// Limiter for expensive operations
+// Limiter for expensive operations (portfolio analysis, security scans) - 3 per minute
 export const heavyLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 3,
-  message: 'Too many requests for this resource, please wait.',
+  message: { success: false, error: 'Too many requests for this resource, please wait.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => !ENABLE_RATE_LIMITING,
+  handler: (req, res) => {
+    logger.warn(`Heavy operation rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({
+      success: false,
+      error: 'This operation is rate-limited. Please wait before trying again.',
+      retryAfter: res.getHeader('Retry-After')
+    });
+  },
   ...(redisClient && {
     store: new RedisStore({
       client: redisClient as any,
       prefix: 'rl:heavy:',
+    }),
+  }),
+});
+
+// WebSocket connection limiter
+export const wsLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: parseInt(process.env.RATE_LIMIT_WS_CONNECTIONS || '10'),
+  message: { success: false, error: 'Too many WebSocket connection attempts.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => !ENABLE_RATE_LIMITING,
+  ...(redisClient && {
+    store: new RedisStore({
+      client: redisClient as any,
+      prefix: 'rl:ws:',
     }),
   }),
 });

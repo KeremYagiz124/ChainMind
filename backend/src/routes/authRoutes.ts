@@ -2,7 +2,11 @@ import { Router, Request, Response } from 'express';
 import { LitProtocolService } from '../services/litProtocolService';
 import { logger } from '../utils/logger';
 import { asyncHandler } from '../middleware/errorMiddleware';
+import { authenticateToken } from '../middleware/authMiddleware';
+import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt';
+import { cacheGet, cacheSet } from '../config/redis';
 import { ethers } from 'ethers';
+import crypto from 'crypto';
 
 const router = Router();
 const litProtocolService = new LitProtocolService();
@@ -19,14 +23,27 @@ router.post('/challenge', asyncHandler(async (req: Request, res: Response) => {
   }
 
   try {
-    const nonce = Math.floor(Math.random() * 1000000).toString();
-    const message = `Welcome to ChainMind!\n\nPlease sign this message to authenticate your wallet.\n\nNonce: ${nonce}\nTimestamp: ${Date.now()}`;
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const timestamp = Date.now();
+    const message = `Welcome to ChainMind!
+
+Please sign this message to authenticate your wallet.
+
+Wallet Address: ${walletAddress}
+Nonce: ${nonce}
+Timestamp: ${timestamp}
+
+This request will not trigger a blockchain transaction or cost any gas fees.`;
+
+    // Store nonce in cache for verification (expires in 5 minutes)
+    await cacheSet(`auth_nonce:${walletAddress.toLowerCase()}`, { nonce, timestamp }, 300);
 
     res.json({
       success: true,
       data: {
         message,
-        nonce
+        nonce,
+        timestamp
       }
     });
 
@@ -39,8 +56,8 @@ router.post('/challenge', asyncHandler(async (req: Request, res: Response) => {
   }
 }));
 
-// POST /api/auth/connect - Verify signature and create Lit Protocol session
-router.post('/connect', asyncHandler(async (req: Request, res: Response) => {
+// POST /api/auth/verify - Verify signature and generate JWT tokens
+router.post('/verify', asyncHandler(async (req: Request, res: Response) => {
   const { address, signature, message } = req.body;
 
   if (!address || !signature || !message) {
@@ -58,39 +75,128 @@ router.post('/connect', asyncHandler(async (req: Request, res: Response) => {
   }
 
   try {
-    const authSession = await litProtocolService.authenticateUser(address, signature, message);
+    // Verify the signature
+    const recoveredAddress = ethers.verifyMessage(message, signature);
+    
+    if (recoveredAddress.toLowerCase() !== address.toLowerCase()) {
+      return res.status(401).json({
+        success: false,
+        error: 'Signature verification failed'
+      });
+    }
+
+    // Verify nonce (optional but recommended)
+    const cachedNonce = await cacheGet(`auth_nonce:${address.toLowerCase()}`);
+    if (cachedNonce && message.includes(cachedNonce.nonce)) {
+      // Clear used nonce
+      await cacheSet(`auth_nonce:${address.toLowerCase()}`, null, 1);
+    }
+
+    // Initialize Lit Protocol session (async, don't block response)
+    litProtocolService.authenticateUser(address, signature, message)
+      .then(authSession => {
+        logger.info(`Lit Protocol session created for ${address}`);
+      })
+      .catch(error => {
+        logger.error('Lit Protocol auth failed:', error);
+      });
+
+    // Generate JWT tokens
+    const sessionId = `session_${Date.now()}_${address.slice(0, 8)}`;
+    const accessToken = generateAccessToken(address, sessionId);
+    const refreshToken = generateRefreshToken(address);
+
+    // Store refresh token in cache
+    await cacheSet(`refresh_token:${address.toLowerCase()}`, refreshToken, 30 * 24 * 60 * 60); // 30 days
 
     res.json({
       success: true,
-      user: {
-        address,
-        sessionId: authSession.sessionId
-      },
-      authSession
+      data: {
+        user: {
+          address: address.toLowerCase(),
+          sessionId
+        },
+        tokens: {
+          accessToken,
+          refreshToken,
+          expiresIn: process.env.JWT_EXPIRES_IN || '7d'
+        }
+      }
     });
 
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Authentication verification error:', error);
     res.status(401).json({
       success: false,
-      error: 'Authentication failed'
+      error: error.message || 'Authentication failed'
     });
   }
 }));
 
-// POST /api/auth/logout - Revoke Lit Protocol session
-router.post('/logout', asyncHandler(async (req: Request, res: Response) => {
-  const { walletAddress } = req.body;
+// POST /api/auth/refresh - Refresh access token using refresh token
+router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
+  const { refreshToken } = req.body;
 
-  if (!walletAddress || !ethers.isAddress(walletAddress)) {
+  if (!refreshToken) {
     return res.status(400).json({
       success: false,
-      error: 'Valid wallet address is required'
+      error: 'Refresh token is required'
     });
   }
 
   try {
-    await litProtocolService.revokeSession(walletAddress);
+    const payload = verifyRefreshToken(refreshToken);
+    const address = payload.address;
+
+    // Verify refresh token is still valid in cache
+    const cachedToken = await cacheGet(`refresh_token:${address}`);
+    if (cachedToken !== refreshToken) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or revoked refresh token'
+      });
+    }
+
+    // Generate new access token
+    const sessionId = `session_${Date.now()}_${address.slice(0, 8)}`;
+    const newAccessToken = generateAccessToken(address, sessionId);
+
+    res.json({
+      success: true,
+      data: {
+        accessToken: newAccessToken,
+        expiresIn: process.env.JWT_EXPIRES_IN || '7d'
+      }
+    });
+
+  } catch (error: any) {
+    logger.error('Token refresh error:', error);
+    res.status(401).json({
+      success: false,
+      error: error.message || 'Token refresh failed'
+    });
+  }
+}));
+
+// POST /api/auth/logout - Revoke tokens and Lit Protocol session
+router.post('/logout', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+  const address = req.user?.address;
+
+  if (!address) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication required'
+    });
+  }
+
+  try {
+    // Revoke refresh token
+    await cacheSet(`refresh_token:${address}`, null, 1);
+    
+    // Revoke Lit Protocol session
+    await litProtocolService.revokeSession(address);
+
+    logger.info(`User logged out: ${address}`);
 
     res.json({
       success: true,
@@ -106,35 +212,37 @@ router.post('/logout', asyncHandler(async (req: Request, res: Response) => {
   }
 }));
 
-// GET /api/auth/status - Check authentication status
-router.get('/status/:walletAddress', asyncHandler(async (req: Request, res: Response) => {
-  const { walletAddress } = req.params;
+// GET /api/auth/me - Get current user info (requires authentication)
+router.get('/me', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+  const address = req.user?.address;
 
-  if (!walletAddress || !ethers.isAddress(walletAddress)) {
-    return res.status(400).json({
+  if (!address) {
+    return res.status(401).json({
       success: false,
-      error: 'Valid wallet address is required'
+      error: 'Authentication required'
     });
   }
 
   try {
-    // This would check if there's a valid session in cache
     const litStatus = litProtocolService.getClientStatus();
+    const hasRefreshToken = !!(await cacheGet(`refresh_token:${address}`));
 
     res.json({
       success: true,
       data: {
-        walletAddress,
-        authenticated: litStatus.connected && litStatus.initialized,
+        address,
+        sessionId: req.user?.sessionId,
+        authenticated: true,
+        hasRefreshToken,
         litProtocolStatus: litStatus
       }
     });
 
   } catch (error) {
-    logger.error('Authentication status error:', error);
+    logger.error('Get user info error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to check authentication status'
+      error: 'Failed to get user information'
     });
   }
 }));

@@ -1,5 +1,4 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import fetch from 'node-fetch';
 import { logger } from '../utils/logger';
 import { cacheGet, cacheSet } from '../config/redis';
 import { MarketService } from './marketService';

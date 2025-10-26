@@ -9,40 +9,42 @@ export const initializeRedis = async (): Promise<void> => {
     
     redisClient = new Redis(redisUrl, {
       enableReadyCheck: false,
-      maxRetriesPerRequest: 3,
+      maxRetriesPerRequest: 1,
+      retryStrategy: () => null, // Disable auto-reconnect
       lazyConnect: true,
-      reconnectOnError: (err: Error) => {
-        const targetError = 'READONLY';
-        return err.message.includes(targetError);
-      }
+      enableOfflineQueue: false,
+      connectTimeout: 3000,
     });
 
-    redisClient.on('error', (err: Error) => {
-      logger.error('Redis Client Error:', err);
-    });
-
-    redisClient.on('connect', () => {
-      logger.info('Redis Client Connected');
+    // Suppress error logging - will be handled in catch
+    redisClient.on('error', () => {
+      // Silent - errors handled in initialization
     });
 
     redisClient.on('ready', () => {
-      logger.info('✅ Redis Client Ready');
+      logger.info('✅ Redis cache enabled');
     });
 
-    redisClient.on('end', () => {
-      logger.info('Redis Client Disconnected');
-    });
-
-    await redisClient.connect();
+    // Try to connect with timeout
+    await Promise.race([
+      redisClient.connect(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Connection timeout')), 3000)
+      )
+    ]);
     
     // Test Redis connection
     await redisClient.ping();
-    logger.info('✅ Redis connection successful');
 
   } catch (error) {
-    logger.error('❌ Redis connection failed:', error);
-    // Don't throw error - Redis is optional for basic functionality
-    logger.warn('Continuing without Redis cache');
+    logger.warn('⚠️  Redis not available. Running without cache (stateless mode).');
+    // Disconnect to prevent retry attempts
+    if (redisClient) {
+      try {
+        await redisClient.disconnect();
+      } catch {}
+      redisClient = null;
+    }
   }
 };
 

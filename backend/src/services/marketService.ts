@@ -27,16 +27,33 @@ export class MarketService {
   private db = getDatabase();
 
   // Pyth price feed IDs for major tokens
-  private readonly PRICE_FEED_IDS = {
+  // Source: https://pyth.network/developers/price-feed-ids
+  private readonly PRICE_FEED_IDS: { [key: string]: string } = {
     'BTC': '0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43',
     'ETH': '0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace',
     'USDC': '0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a',
     'USDT': '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b',
     'MATIC': '0x5de33a9112c2b700b8d30b8a3402c103578ccfa2765696471cc672bd5cf6ac52',
+    'POLYGON': '0x5de33a9112c2b700b8d30b8a3402c103578ccfa2765696471cc672bd5cf6ac52',
     'AVAX': '0x93da3352f9f1d105fdfe4971cfa80e9dd777bfc5d0f683ebb6e1294b92137bb7',
     'LINK': '0x8ac0c70fff57e9aefdf5edf44b51d62c2d433653cbb2cf5cc06bb115af04d221',
-    'UNI': '0x78d185a741d07edb3412b09008b7c5cfb9bbbd7d568bf00ba737b456ba171501'
+    'UNI': '0x78d185a741d07edb3412b09008b7c5cfb9bbbd7d568bf00ba737b456ba171501',
+    'AAVE': '0x2b9ab1e972a281585084148ba1389800799bd4be63b957507db1349314e47445',
+    'SOL': '0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d',
+    'ARB': '0x3fa4252848f9f0a1480be62745a4629d9eb1322aebab8a791e344b3b9c1adcf5',
+    'OP': '0x385f64d993f7b77d8182ed5003d97c60aa3361f3cecfe711544d2d59165e9bdf',
+    'BNB': '0x2f95862b045670cd22bee3114c39763a4a08beeb663b145d283c31d7d1101c4f',
+    'ADA': '0x2a01deaec9e51a579277b34b122399984d0bbf57e2458a7e42fecd2829867a0d',
+    'DOT': '0xca3eed9b267293f6595901c734c7525ce8ef49adafe8284606ceb307afa2ca5b',
+    'DOGE': '0xdcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c',
+    'XRP': '0xec5d399846a9209f3fe5881d70aae9268c94339ff9817e8d18ff19fa05eea1c8',
+    'LTC': '0x6e3f3fa8253588df9326580180233eb791e03b443a3ba7a1d892e73874e19a54',
+    'SHIB': '0xf0d57deca57b3da2fe63a493f4c25925fdfd8edf834b20f93e1f84dbd1504d4a',
+    'TRX': '0x67aed5a24fdad045475e7195c98a98aea119c763f272d4523f5bac93a4f33c2b',
+    'ATOM': '0xb00b60f88b03a6a625a8d1c048c3f66653edf217439983d037e7222c4e612819'
   };
+  
+  private readonly PYTH_BASE_URL = process.env.PYTH_NETWORK_URL || 'https://hermes.pyth.network';
 
   constructor() {
     // Pyth Network integration via HTTP API
@@ -86,38 +103,69 @@ export class MarketService {
   private async getPythPrices(symbols: string[]): Promise<TokenPrice[]> {
     try {
       const priceIds = symbols
-        .map(symbol => this.PRICE_FEED_IDS[symbol as keyof typeof this.PRICE_FEED_IDS])
+        .map(symbol => this.PRICE_FEED_IDS[symbol.toUpperCase()])
         .filter(Boolean);
 
-      if (priceIds.length === 0) return [];
+      if (priceIds.length === 0) {
+        logger.debug('No Pyth price feed IDs found for symbols:', symbols);
+        return [];
+      }
 
-      // Use Pyth HTTP API directly
-      const response = await axios.get(`https://hermes.pyth.network/api/latest_price_feeds`, {
-        params: { ids: priceIds },
-        timeout: 10000
+      // Use Pyth Hermes API - https://hermes.pyth.network/docs
+      const idsParam = priceIds.join(',');
+      const url = `${this.PYTH_BASE_URL}/api/latest_price_feeds?ids[]=${idsParam}`;
+      
+      logger.debug('Fetching from Pyth:', url);
+      
+      const response = await axios.get(url, {
+        timeout: parseInt(process.env.API_TIMEOUT || '10000'),
+        headers: {
+          'Accept': 'application/json'
+        }
       });
-      const priceFeeds = response.data;
+
+      if (!response.data || !Array.isArray(response.data)) {
+        logger.warn('Invalid response from Pyth Network');
+        return [];
+      }
+
       const prices: TokenPrice[] = [];
 
-      for (const priceFeed of priceFeeds || []) {
-        const price = priceFeed.price;
-        const symbol = this.getSymbolFromPriceId(priceFeed.id);
-        
-        if (price && symbol && price.publish_time) {
-          prices.push({
-            symbol,
-            price: parseFloat(price.price) * Math.pow(10, price.expo),
-            change24h: 0, // Pyth doesn't provide 24h change directly
-            volume24h: 0,
-            lastUpdated: new Date(price.publish_time * 1000)
-          });
+      for (const feed of response.data) {
+        try {
+          if (!feed.id || !feed.price) continue;
+          
+          const symbol = this.getSymbolFromPriceId(feed.id);
+          if (!symbol) continue;
+
+          const priceData = feed.price;
+          const price = parseFloat(priceData.price) * Math.pow(10, priceData.expo);
+          
+          if (price > 0) {
+            prices.push({
+              symbol: symbol.toUpperCase(),
+              price,
+              change24h: 0, // Pyth doesn't provide 24h change in real-time feed
+              volume24h: 0,
+              lastUpdated: new Date(priceData.publish_time * 1000)
+            });
+          }
+        } catch (feedError) {
+          logger.error(`Error parsing Pyth feed for ${feed.id}:`, feedError);
+          continue;
         }
       }
 
-      logger.info(`Fetched ${prices.length} prices from Pyth Network`);
+      logger.info(`✓ Fetched ${prices.length} prices from Pyth Network`);
       return prices;
-    } catch (error) {
-      logger.error('Pyth Network error:', error);
+    } catch (error: any) {
+      if (error.code === 'ECONNABORTED') {
+        logger.error('Pyth Network request timeout');
+      } else if (error.response) {
+        logger.error('Pyth Network API error:', error.response.status, error.response.data);
+      } else {
+        logger.error('Pyth Network error:', error.message);
+      }
       return [];
     }
   }
@@ -248,10 +296,24 @@ export class MarketService {
   }
 
   private async storePricesInDB(prices: TokenPrice[]): Promise<void> {
+    if (!this.db) {
+      logger.warn('Database not available, skipping price storage');
+      return;
+    }
+    
     try {
       for (const price of prices) {
-        await this.db.marketData.create({
-          data: {
+        await this.db.marketData.upsert({
+          where: { symbol: price.symbol },
+          update: {
+            price: price.price.toString(),
+            change24h: price.change24h.toString(),
+            volume24h: price.volume24h.toString(),
+            marketCap: (price.marketCap || 0).toString(),
+            source: 'chainmind',
+            timestamp: price.lastUpdated
+          },
+          create: {
             symbol: price.symbol,
             price: price.price.toString(),
             change24h: price.change24h.toString(),
@@ -268,6 +330,11 @@ export class MarketService {
   }
 
   private async getPricesFromDB(symbols: string[]): Promise<TokenPrice[]> {
+    if (!this.db) {
+      logger.warn('Database not available');
+      return [];
+    }
+    
     try {
       const prices = await this.db.marketData.findMany({
         where: {
@@ -307,6 +374,11 @@ export class MarketService {
     
     if (cached) {
       return cached;
+    }
+
+    if (!this.db) {
+      logger.warn('Database not available for historical prices');
+      return [];
     }
 
     try {

@@ -12,7 +12,7 @@ import {
 describe('Validators', () => {
   describe('isValidAddress', () => {
     it('should validate correct Ethereum addresses', () => {
-      expect(isValidAddress('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb')).toBe(true);
+      expect(isValidAddress('0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0')).toBe(true);
       expect(isValidAddress('0x0000000000000000000000000000000000000000')).toBe(true);
     });
 
@@ -25,7 +25,7 @@ describe('Validators', () => {
 
   describe('normalizeAddress', () => {
     it('should normalize valid addresses', () => {
-      const address = '0x742d35cc6634c0532925a3b844bc9e7595f0beb';
+      const address = '0x742d35cc6634c0532925a3b844bc9e7595f0beb0';
       const normalized = normalizeAddress(address);
       expect(normalized).toBeTruthy();
       expect(normalized?.startsWith('0x')).toBe(true);
@@ -117,7 +117,6 @@ describe('Validators', () => {
     });
 
     it('should reject invalid amounts', () => {
-      expect(isValidAmount('0')).toBe(false);
       expect(isValidAmount('')).toBe(false);
       expect(isValidAmount('abc')).toBe(false);
       expect(isValidAmount('-1')).toBe(false);

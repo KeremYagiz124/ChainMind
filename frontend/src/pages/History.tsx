@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { useNavigate } from 'react-router-dom';
 import { Clock, MessageSquare, Trash2, Search } from 'lucide-react';
+import { API_ENDPOINTS } from '../config/api';
+import { showErrorToast } from '../utils/errorHandler';
+import { logger } from '../utils/logger';
 
 interface ChatHistory {
   id: string;
@@ -35,8 +38,9 @@ const History: React.FC = () => {
         return;
       }
 
-      const response = await fetch(`http://localhost:3001/api/chat/conversations/${address}`);
+      const response = await fetch(API_ENDPOINTS.CHAT_CONVERSATIONS(address));
       const data = await response.json();
+      logger.debug('Conversations loaded:', data);
       
       if (data.success && data.conversations) {
         const formattedHistory: ChatHistory[] = data.conversations.map((conv: any) => ({
@@ -51,8 +55,8 @@ const History: React.FC = () => {
       } else {
         setChatHistory([]);
       }
-    } catch (error) {
-      console.error('Failed to fetch chat history:', error);
+    } catch (err) {
+      logger.error('Failed to fetch chat history:', err);
       setChatHistory([]);
     } finally {
       setLoading(false);
@@ -77,17 +81,19 @@ const History: React.FC = () => {
 
   const handleDeleteChat = async (chatId: string) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/chat/conversation/${chatId}`, {
+      const response = await fetch(API_ENDPOINTS.CHAT_CONVERSATION(chatId), {
         method: 'DELETE'
       });
       
       if (response.ok) {
         setChatHistory(prev => prev.filter(chat => chat.id !== chatId));
+        showErrorToast('Conversation deleted successfully');
       } else {
-        console.error('Failed to delete conversation');
+        showErrorToast('Failed to delete conversation');
       }
-    } catch (error) {
-      console.error('Error deleting conversation:', error);
+    } catch (err) {
+      logger.error('Error deleting conversation:', err);
+      showErrorToast(err, 'Error deleting conversation');
     }
   };
 

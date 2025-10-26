@@ -37,6 +37,15 @@ export interface ContractInfo {
 
 export class SecurityService {
   private db = getDatabase();
+  private readonly BLOCKSCOUT_API_KEY = process.env.BLOCKSCOUT_API_KEY;
+  
+  private readonly BLOCKSCOUT_URLS: { [chainId: number]: string } = {
+    1: process.env.BLOCKSCOUT_API_URL || 'https://eth.blockscout.com/api',
+    137: process.env.BLOCKSCOUT_POLYGON_URL || 'https://polygon.blockscout.com/api',
+    42161: process.env.BLOCKSCOUT_ARBITRUM_URL || 'https://arbitrum.blockscout.com/api',
+    10: 'https://optimism.blockscout.com/api',
+    8453: 'https://base.blockscout.com/api'
+  };
   
   // Known protocol configurations
   private readonly KNOWN_PROTOCOLS = {
@@ -108,16 +117,27 @@ export class SecurityService {
     }
   }
 
-  private async getContractInfo(address: string): Promise<ContractInfo> {
+  private async getContractInfo(address: string, chainId: number = 1): Promise<ContractInfo> {
+    const baseUrl = this.BLOCKSCOUT_URLS[chainId] || this.BLOCKSCOUT_URLS[1];
+    
     try {
-      // Use Blockscout API to get contract information
+      // Use Blockscout API v2 to get contract information
+      const headers: any = {
+        'Accept': 'application/json',
+        'User-Agent': 'ChainMind/1.0'
+      };
+      
+      if (this.BLOCKSCOUT_API_KEY) {
+        headers['Authorization'] = `Bearer ${this.BLOCKSCOUT_API_KEY}`;
+      }
+
+      logger.debug(`Fetching contract info from Blockscout: ${baseUrl}/v2/smart-contracts/${address}`);
+
       const response = await axios.get(
-        `https://eth.blockscout.com/api/v2/smart-contracts/${address}`,
+        `${baseUrl}/v2/smart-contracts/${address}`,
         {
-          timeout: 10000,
-          headers: {
-            'Accept': 'application/json'
-          }
+          timeout: parseInt(process.env.BLOCKCHAIN_TIMEOUT || '15000'),
+          headers
         }
       );
 
@@ -125,22 +145,58 @@ export class SecurityService {
       
       return {
         address,
-        name: data.name,
-        verified: data.is_verified || false,
+        name: data.name || 'Unknown Contract',
+        verified: data.is_verified || data.verified || false,
         sourceCode: data.source_code,
         compiler: data.compiler_version,
         optimization: data.optimization_enabled,
-        creationDate: data.creation_bytecode ? new Date(data.creation_bytecode.created_at) : undefined,
-        creator: data.creation_bytecode?.creator_address
+        creationDate: data.created_at ? new Date(data.created_at) : undefined,
+        creator: data.creator_address_hash
+      };
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        logger.warn(`Contract ${address} not found on Blockscout`);
+      } else if (error.response?.status === 429) {
+        logger.error('Blockscout API rate limit exceeded');
+      } else {
+        logger.error('Error fetching contract info from Blockscout:', error.message);
+      }
+      
+      // Fallback: Try to get basic info from blockchain
+      return await this.getContractInfoFromChain(address, chainId);
+    }
+  }
+  
+  private async getContractInfoFromChain(address: string, chainId: number): Promise<ContractInfo> {
+    try {
+      const provider = this.getProvider(chainId);
+      const code = await provider.getCode(address);
+      
+      return {
+        address,
+        verified: false,
+        name: 'Unverified Contract',
+        sourceCode: undefined
       };
     } catch (error) {
-      logger.error('Error fetching contract info:', error);
-      
+      logger.error('Error fetching contract from chain:', error);
       return {
         address,
         verified: false
       };
     }
+  }
+  
+  private getProvider(chainId: number): ethers.JsonRpcProvider {
+    const rpcUrls: { [key: number]: string } = {
+      1: process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
+      137: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+      42161: process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc',
+      10: process.env.OPTIMISM_RPC_URL || 'https://mainnet.optimism.io',
+      8453: process.env.BASE_RPC_URL || 'https://mainnet.base.org'
+    };
+    
+    return new ethers.JsonRpcProvider(rpcUrls[chainId] || rpcUrls[1]);
   }
 
   private async performSecurityAnalysis(
@@ -308,6 +364,11 @@ export class SecurityService {
   }
 
   private async storeAnalysisInDB(analysis: SecurityAnalysis): Promise<void> {
+    if (!this.db) {
+      logger.warn('Database not available, skipping analysis storage');
+      return;
+    }
+    
     try {
       // First, ensure protocol exists
       await this.db.protocol.upsert({
@@ -340,7 +401,7 @@ export class SecurityService {
             protocolId: protocol.id,
             contractAddress: analysis.contractAddress,
             riskLevel: analysis.riskLevel,
-            issues: analysis.issues,
+            issues: analysis.issues as any,
             score: analysis.riskScore,
             analyzer: 'chainmind',
             version: '1.0'
@@ -378,6 +439,10 @@ export class SecurityService {
   }
 
   async getProtocolRiskScore(protocolName: string): Promise<number> {
+    if (!this.db) {
+      return 50; // Default medium risk
+    }
+    
     try {
       const protocol = await this.db.protocol.findUnique({
         where: { name: protocolName },
@@ -402,6 +467,10 @@ export class SecurityService {
     severity: string;
     timestamp: Date;
   }>> {
+    if (!this.db) {
+      return [];
+    }
+    
     try {
       const alerts = await this.db.alert.findMany({
         where: {

@@ -27,42 +27,6 @@ router.post('/message', asyncHandler(async (req: Request, res: Response) => {
   }
 
   try {
-    // Get or create conversation
-    let conversation;
-    if (conversationId) {
-      conversation = await db.conversation.findUnique({
-        where: { id: conversationId },
-        include: {
-          messages: {
-            orderBy: { createdAt: 'desc' },
-            take: 10
-          }
-        }
-      });
-    } else {
-      // Create new conversation
-      conversation = await db.conversation.create({
-        data: {
-          userAddress: userAddress || 'anonymous',
-          title: message.substring(0, 50) + '...',
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
-      });
-    }
-
-    // Create user message
-    const userMessage = await db.message.create({
-      data: {
-        conversationId: conversation.id,
-        content: message,
-        sender: 'user',
-        type: 'text',
-        metadata: {},
-        createdAt: new Date()
-      }
-    });
-
     // Get conversation context
     const context: ChatContext = {
       userAddress: userAddress || 'anonymous',
@@ -70,36 +34,92 @@ router.post('/message', asyncHandler(async (req: Request, res: Response) => {
       userPreferences: {}
     };
 
-    // Get AI response
+    // Get AI response first (works without DB)
     const aiResponse = await aiService.processMessage(message, context);
 
-    // Create AI message
-    const aiMessage = await db.message.create({
-      data: {
-        conversationId: conversation.id,
-        content: aiResponse.content,
-        role: 'assistant',
-        metadata: aiResponse.metadata || {},
-        createdAt: new Date()
+    // Try to store in database if available
+    let conversation, userMessage, aiMessage;
+    if (db) {
+      try {
+        // Get or create conversation
+        if (conversationId) {
+          conversation = await db.conversation.findUnique({
+            where: { id: conversationId },
+            include: {
+              messages: {
+                orderBy: { createdAt: 'desc' },
+                take: 10
+              }
+            }
+          });
+        } else {
+          // Create new conversation
+          conversation = await db.conversation.create({
+            data: {
+              userAddress: userAddress || 'anonymous',
+              title: message.substring(0, 50) + '...',
+              createdAt: new Date(),
+              updatedAt: new Date()
+            }
+          });
+        }
+
+        // Create user message
+        userMessage = await db.message.create({
+          data: {
+            conversationId: conversation.id,
+            content: message,
+            sender: 'user',
+            type: 'text',
+            metadata: {},
+            createdAt: new Date()
+          }
+        });
+
+        // Create AI message
+        aiMessage = await db.message.create({
+          data: {
+            conversationId: conversation.id,
+            content: aiResponse.content,
+            role: 'assistant',
+            metadata: aiResponse.metadata || {},
+            createdAt: new Date()
+          }
+        });
+      } catch (dbError) {
+        logger.error('Database error in chat, continuing without persistence:', dbError);
       }
-    });
+    }
 
     res.json({
       success: true,
+      message: aiResponse.content,
+      metadata: aiResponse.metadata,
       userMessage,
       aiMessage,
-      conversation
+      conversation,
+      stored: !!conversation
     });
 
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Chat message error:', error);
-    res.status(500).json({ error: 'Failed to process message' });
+    res.status(500).json({ 
+      success: false,
+      error: error.message || 'Failed to process message' 
+    });
   }
 }));
 
 // GET /api/chat/conversations/:userAddress - Get conversation messages
 router.get('/conversations/:userAddress', asyncHandler(async (req: Request, res: Response) => {
   const { userAddress } = req.params;
+  
+  if (!db) {
+    return res.status(503).json({
+      success: false,
+      error: 'Database not available'
+    });
+  }
   
   try {
     const conversations = await db.conversation.findMany({
@@ -113,16 +133,26 @@ router.get('/conversations/:userAddress', asyncHandler(async (req: Request, res:
       orderBy: { updatedAt: 'desc' }
     });
 
-    res.json({ success: true, conversations });
-  } catch (error) {
+    res.json({ success: true, data: conversations });
+  } catch (error: any) {
     logger.error('Get conversations error:', error);
-    res.status(500).json({ error: 'Failed to get conversations' });
+    res.status(500).json({ 
+      success: false,
+      error: error.message || 'Failed to get conversations' 
+    });
   }
 }));
 
 // DELETE /api/chat/conversation/:id - Delete conversation
 router.delete('/conversation/:id', asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
+  
+  if (!db) {
+    return res.status(503).json({
+      success: false,
+      error: 'Database not available'
+    });
+  }
   
   try {
     // Delete messages first (cascade should handle this, but being explicit)
@@ -158,6 +188,13 @@ router.post('/conversations/:id/title', asyncHandler(async (req: Request, res: R
     });
   }
 
+  if (!db) {
+    return res.status(503).json({
+      success: false,
+      error: 'Database not available'
+    });
+  }
+
   try {
     const conversation = await db.conversation.findFirst({
       where: {
@@ -183,11 +220,11 @@ router.post('/conversations/:id/title', asyncHandler(async (req: Request, res: R
       message: 'Conversation title updated successfully'
     });
 
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Update conversation title error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to update conversation title'
+      error: error.message || 'Failed to update conversation title'
     });
   }
 }));

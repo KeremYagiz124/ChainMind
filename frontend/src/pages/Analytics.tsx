@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { API_ENDPOINTS, buildUrlWithParams } from '../config/api';
+import { showErrorToast, showLoadingToast, dismissToast } from '../utils/errorHandler';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -45,13 +47,13 @@ const Analytics: React.FC = () => {
     setLoading(true);
     setError(null);
 
-    // Use search tokens if provided, otherwise use default tokens
     const symbols = tokensToFetch || defaultTokens;
+    const toastId = showLoadingToast('Loading market data...');
 
     try {
       const [overviewResponse, pricesResponse] = await Promise.all([
-        fetch('http://localhost:3001/api/market/overview'),
-        fetch(`http://localhost:3001/api/market/prices?symbols=${symbols.join(',')}`)
+        fetch(API_ENDPOINTS.MARKET_OVERVIEW),
+        fetch(buildUrlWithParams(API_ENDPOINTS.MARKET_PRICES, { symbols: symbols.join(',') }))
       ]);
 
       if (!overviewResponse.ok || !pricesResponse.ok) {
@@ -75,14 +77,29 @@ const Analytics: React.FC = () => {
         setSelectedTokens(validTokens);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      const errorMsg = err instanceof Error ? err.message : 'An error occurred';
+      setError(errorMsg);
+      showErrorToast(err, 'Failed to load market data');
     } finally {
+      dismissToast(toastId);
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchMarketData();
+    let isMounted = true;
+    
+    const loadData = async () => {
+      if (isMounted) {
+        await fetchMarketData();
+      }
+    };
+    
+    loadData();
+    
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Handle search - fetch all tokens when searching

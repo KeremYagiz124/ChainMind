@@ -58,12 +58,24 @@ const socketService = new SocketService(io);
 // Initialize services
 async function initializeServices() {
   try {
-    await initializeDatabase();
-    await initializeRedis();
-    logger.info('All services initialized successfully');
+    // Try to initialize database (non-critical)
+    try {
+      await initializeDatabase();
+    } catch (dbError) {
+      logger.warn('Database initialization failed, continuing without database');
+    }
+
+    // Try to initialize Redis (non-critical)
+    try {
+      await initializeRedis();
+    } catch (redisError) {
+      logger.warn('Redis initialization failed, continuing without cache');
+    }
+
+    logger.info('✅ Core services initialized');
   } catch (error) {
-    logger.error('Failed to initialize services:', error);
-    process.exit(1);
+    logger.error('Service initialization error:', error);
+    // Don't exit - continue without optional services
   }
 }
 

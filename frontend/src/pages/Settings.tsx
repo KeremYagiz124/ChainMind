@@ -12,6 +12,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { logger } from '../utils/logger';
 
 const Settings: React.FC = () => {
   const { address, isConnected } = useAccount();
@@ -73,7 +74,7 @@ const Settings: React.FC = () => {
       toast.success('Settings saved successfully!');
     } catch (error) {
       toast.error('Failed to save settings');
-      console.error('Error saving settings:', error);
+      logger.error('Error saving settings:', error);
     }
   };
 
@@ -85,7 +86,7 @@ const Settings: React.FC = () => {
         const parsed = JSON.parse(savedSettings);
         setSettings(parsed);
       } catch (error) {
-        console.error('Error loading settings:', error);
+        logger.error('Error loading settings:', error);
       }
     }
   }, []);

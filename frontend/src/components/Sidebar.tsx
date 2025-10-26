@@ -8,7 +8,8 @@ import {
   Settings, 
   History,
   Plus,
-  X
+  X,
+  Coins
 } from 'lucide-react';
 import { useAccount } from 'wagmi';
 
@@ -39,6 +40,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       href: '/analytics',
       icon: TrendingUp,
       description: 'Market Data'
+    },
+    {
+      name: 'DeFi',
+      href: '/defi',
+      icon: Coins,
+      description: 'DeFi Positions',
+      requiresWallet: true
     },
     {
       name: 'Security',

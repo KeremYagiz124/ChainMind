@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
+import { API_ENDPOINTS } from '../config/api';
+import { showErrorToast, showLoadingToast, dismissToast } from '../utils/errorHandler';
 import { 
-  PieChart, 
+  PieChart as PieChartIcon, 
   TrendingUp, 
   TrendingDown, 
   DollarSign, 
@@ -11,6 +13,9 @@ import {
   Info
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import PortfolioChart from '../components/charts/PortfolioChart';
+import NFTGrid from '../components/NFTGrid';
+import { portfolioLogger } from '../utils/logger';
 
 interface TokenBalance {
   address: string;
@@ -38,23 +43,40 @@ interface PortfolioAnalysis {
   allocation: { [category: string]: number };
 }
 
+interface NFT {
+  id: string;
+  tokenId: string;
+  contractAddress: string;
+  name: string;
+  description?: string;
+  image?: string;
+  collection?: string;
+  owner?: string;
+  lastPrice?: number;
+  floorPrice?: number;
+}
+
 const Portfolio: React.FC = () => {
   const { address, isConnected } = useAccount();
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [analysis, setAnalysis] = useState<PortfolioAnalysis | null>(null);
+  const [nfts, setNfts] = useState<NFT[]>([]);
   const [loading, setLoading] = useState(false);
+  const [nftsLoading, setNftsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showNFTs, setShowNFTs] = useState(false);
 
   const fetchPortfolioData = async () => {
     if (!address) return;
 
     setLoading(true);
     setError(null);
+    const toastId = showLoadingToast('Loading portfolio data...');
 
     try {
       const [portfolioResponse, analysisResponse] = await Promise.all([
-        fetch(`/api/portfolio/${address}`),
-        fetch(`/api/portfolio/${address}/analysis`)
+        fetch(API_ENDPOINTS.PORTFOLIO(address)),
+        fetch(API_ENDPOINTS.PORTFOLIO_ANALYSIS(address))
       ]);
 
       if (!portfolioResponse.ok) {
@@ -86,16 +108,79 @@ const Portfolio: React.FC = () => {
         setAnalysis(analysisResult.data);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      const errorMsg = err instanceof Error ? err.message : 'An error occurred';
+      setError(errorMsg);
+      showErrorToast(err, 'Failed to load portfolio data');
     } finally {
+      dismissToast(toastId);
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (isConnected && address) {
-      fetchPortfolioData();
+  const fetchNFTs = async () => {
+    if (!address) return;
+
+    setNftsLoading(true);
+
+    try {
+      const response = await fetch(API_ENDPOINTS.PORTFOLIO_NFTS(address));
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          setNfts(result.data);
+        }
+      } else {
+        // NFT endpoint might not be implemented yet, use mock data
+        const mockNFTs: NFT[] = [
+          {
+            id: '1',
+            tokenId: '1234',
+            contractAddress: '0x123...',
+            name: 'Cool NFT #1234',
+            description: 'A unique digital collectible',
+            image: 'https://via.placeholder.com/400',
+            collection: 'Cool Collection',
+            lastPrice: 0.5,
+            floorPrice: 0.3
+          },
+          {
+            id: '2',
+            tokenId: '5678',
+            contractAddress: '0x456...',
+            name: 'Awesome NFT #5678',
+            description: 'Another amazing piece',
+            image: 'https://via.placeholder.com/400',
+            collection: 'Awesome Collection',
+            lastPrice: 1.2,
+            floorPrice: 0.8
+          }
+        ];
+        setNfts(mockNFTs);
+      }
+    } catch (err) {
+      portfolioLogger.error('Failed to fetch NFTs:', err);
+      setNfts([]);
+    } finally {
+      setNftsLoading(false);
     }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const loadData = async () => {
+      if (isConnected && address && isMounted) {
+        await fetchPortfolioData();
+        await fetchNFTs();
+      }
+    };
+    
+    loadData();
+    
+    return () => {
+      isMounted = false;
+    };
   }, [address, isConnected]);
 
   const formatCurrency = (value: number) => {
@@ -231,7 +316,7 @@ const Portfolio: React.FC = () => {
             >
               <div className="flex items-center space-x-3 mb-4">
                 <div className="p-2 bg-purple-100 rounded-lg">
-                  <PieChart className="w-5 h-5 text-purple-600" />
+                  <PieChartIcon className="w-5 h-5 text-purple-600" />
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Assets</p>
@@ -242,6 +327,23 @@ const Portfolio: React.FC = () => {
               </div>
             </motion.div>
           </div>
+
+          {/* Portfolio Allocation Chart */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="bg-white rounded-xl border border-gray-200 p-6"
+          >
+            <PortfolioChart
+              data={portfolioData.tokens.map(token => ({
+                name: token.symbol,
+                value: token.value || 0,
+                symbol: token.symbol
+              }))}
+              title="Token Allocation"
+            />
+          </motion.div>
 
           {/* Holdings Table */}
           <motion.div
@@ -388,6 +490,41 @@ const Portfolio: React.FC = () => {
               )}
             </motion.div>
           )}
+
+          {/* NFT Collection Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.6 }}
+            className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm"
+          >
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">NFT Collection</h2>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    {nfts.length} NFTs in your collection
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowNFTs(!showNFTs)}
+                  className="px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                >
+                  {showNFTs ? 'Hide' : 'Show'} NFTs
+                </button>
+              </div>
+            </div>
+            
+            {showNFTs && (
+              <div className="p-6 bg-gray-50 dark:bg-gray-900/50">
+                <NFTGrid 
+                  nfts={nfts} 
+                  loading={nftsLoading}
+                  onNFTClick={(nft) => portfolioLogger.debug('NFT clicked:', nft)}
+                />
+              </div>
+            )}
+          </motion.div>
         </>
       )}
     </div>
