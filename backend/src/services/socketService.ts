@@ -45,7 +45,19 @@ export class SocketService {
         logger.info(`User authenticated: ${socket.id} (${data.address || 'anonymous'})`);
       });
 
-      // Handle chat messages
+      // Handle chat messages (support both event names)
+      socket.on('send-message', async (data) => {
+        try {
+          await this.handleChatMessage(socket, data);
+        } catch (error) {
+          logger.error('Chat message error:', error);
+          socket.emit('error', {
+            type: 'chat_error',
+            message: 'Failed to process message'
+          });
+        }
+      });
+
       socket.on('chat_message', async (data) => {
         try {
           await this.handleChatMessage(socket, data);
@@ -128,11 +140,13 @@ export class SocketService {
   }
 
   private async handleChatMessage(socket: any, data: {
-    message: string;
+    message?: string;
+    content?: string;
     conversationId?: string;
     userAddress?: string;
   }): Promise<void> {
-    const { message, conversationId, userAddress } = data;
+    const message = data.message || data.content;
+    const { conversationId, userAddress } = data;
 
     if (!message || typeof message !== 'string') {
       socket.emit('error', {
@@ -142,144 +156,32 @@ export class SocketService {
       return;
     }
 
-    // Get or create conversation
-    let conversation;
-    if (conversationId) {
-      conversation = await this.db.conversation.findUnique({
-        where: { id: conversationId },
-        include: {
-          messages: {
-            orderBy: { createdAt: 'desc' },
-            take: 10
-          }
-        }
-      });
-    }
-
-    if (!conversation) {
-      conversation = await this.db.conversation.create({
-        data: {
-          userId: socket.data.userId,
-          title: `Chat ${new Date().toISOString()}`
-        },
-        include: {
-          messages: true
-        }
-      });
-
-      // Join the conversation room
-      socket.join(conversation.id);
-    }
-
-    // Build chat context
-    // Load user preferences from database if available
-    let userPreferences = {};
-    if (this.db && socket.data.userAddress) {
-      try {
-        const user = await this.db.user.findUnique({
-          where: { address: socket.data.userAddress },
-          select: { preferences: true }
-        });
-        if (user?.preferences) {
-          userPreferences = user.preferences as any;
-        }
-      } catch (error) {
-        // Database not available or user not found - use defaults
-      }
-    }
-
-    const context: ChatContext = {
-      userAddress: socket.data.userAddress || undefined,
-      conversationHistory: (conversation as any).messages?.reverse().map((msg: any) => ({
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-        timestamp: msg.createdAt
-      })) || [],
-      userPreferences
+    // Build chat context without database (stateless mode)
+    const chatContext: ChatContext = {
+      userAddress: userAddress || 'anonymous',
+      conversationHistory: [],
+      userPreferences: {}
     };
 
-    // Store user message
-    const userMessage = await this.db.message.create({
-      data: {
-        conversationId: conversation!.id,
-        sender: 'user',
-        content: message,
-        messageType: 'text'
-      }
+    // Process message with AI
+    logger.info(`Processing AI message: ${message.substring(0, 50)}...`, {
+      userAddress: userAddress || 'anonymous'
     });
 
-    // Emit user message to conversation room
-    socket.to(conversation.id).emit('message_received', {
-      id: userMessage.id,
-      conversationId: conversation.id,
-      role: 'user',
-      content: message,
-      type: 'text',
-      timestamp: userMessage.createdAt
-    });
+    const aiResponse = await this.aiService.processMessage(message, chatContext);
 
-    // Show typing indicator for AI
-    socket.emit('ai_typing', { conversationId: conversation.id, typing: true });
-
-    try {
-      // Process message with AI
-      const aiResponse = await this.aiService.processMessage(message, context);
-
-      // Store AI response
-      const aiMessage = await this.db.message.create({
-        data: {
-          conversationId: conversation.id,
-          sender: 'ai',
-          content: aiResponse.content,
-          messageType: aiResponse.type,
-          metadata: aiResponse.metadata
-        }
-      });
-
-      // Update conversation
-      await this.db.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          updatedAt: new Date()
-        }
-      });
-
-      // Stop typing indicator
-      socket.emit('ai_typing', { conversationId: conversation.id, typing: false });
-
-      // Emit AI response
-      const responseData = {
-        id: aiMessage.id,
-        conversationId: conversation.id,
-        role: 'assistant',
-        content: aiResponse.content,
-        type: aiResponse.type,
-        confidence: aiResponse.confidence,
-        sources: aiResponse.sources,
-        timestamp: aiMessage.createdAt,
-        metadata: aiResponse.metadata
-      };
-
-      socket.emit('message_received', responseData);
-      socket.to(conversation.id).emit('message_received', responseData);
-
-    } catch (error) {
-      logger.error('AI processing error:', error);
-      
-      // Stop typing indicator
-      socket.emit('ai_typing', { conversationId: conversation.id, typing: false });
-      
-      // Send error message
-      socket.emit('message_received', {
-        id: `error_${Date.now()}`,
-        conversationId: conversation.id,
-        role: 'assistant',
-        content: 'I apologize, but I encountered an error processing your message. Please try again.',
-        type: 'warning',
-        confidence: 0,
-        timestamp: new Date()
-      });
-    }
+    // Send AI response back to client
+    const responseMessage = {
+      id: `msg_${Date.now()}_ai`,
+      conversationId: conversationId || `conv_${Date.now()}`,
+      content: aiResponse.content,
+      sender: 'ai',
+      type: aiResponse.type,
+      timestamp: new Date()
+    };
+    
+    socket.emit('ai-message', responseMessage);
+    logger.info('AI response sent successfully:', { messageId: responseMessage.id });
   }
 
   // Broadcast portfolio updates

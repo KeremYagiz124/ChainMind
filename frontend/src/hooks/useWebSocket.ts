@@ -165,9 +165,12 @@ export const useWebSocket = (token?: string): WebSocketHookReturn => {
   const onNewMessage = useCallback((callback: (message: Message) => void) => {
     if (!socket) return () => {};
     
+    // Listen for both event names
     socket.on('new-message', callback);
+    socket.on('ai-message', callback);
     return () => {
       socket.off('new-message', callback);
+      socket.off('ai-message', callback);
     };
   }, [socket]);
 
